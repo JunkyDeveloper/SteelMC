@@ -2,7 +2,7 @@ name: Flint Tests
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, dev, flint-cicd]
   pull_request:
 
 env:
