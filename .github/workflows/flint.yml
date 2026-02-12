@@ -31,8 +31,8 @@ jobs:
           path: flint
 
       - name: Check the tests directory is not empty
-        working-directory: flint/FlintBenchmark/tests
-        run: find ./test -type f -printf '.' | wc -c
+        working-directory: flint/FlintBenchmark
+        run: find ./tests -type f -printf '.' | wc -c
       - name: Run flint-steel tests
         timeout-minutes: 15
         env:
