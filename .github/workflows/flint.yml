@@ -1,0 +1,47 @@
+name: Flint Tests
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout SteelMC
+        uses: actions/checkout@v4
+
+      - name: Add flint-steel to workspace
+        run: sed -i 's/"steel-crypto",/"steel-crypto",\n    "flint-steel",/' Cargo.toml
+
+      - name: Checkout flint-steel
+        uses: actions/checkout@v4
+        with:
+          repository: FlintTestMC/flint-steel
+          path: flint-steel
+
+      - name: Clone FlintBenchmark
+        uses: actions/checkout@v4
+        with:
+          repository: FlintTestMC/FlintBenchmark
+          path: flint
+
+      - name: Check the tests directory is not empty
+        working-directory: flint/FlintBenchmark/tests
+        run: find ./test -type f -printf '.' | wc -c
+      - name: Run flint-steel tests
+        timeout-minutes: 15
+        env:
+          TEST_PATH: ${{ github.workspace }}/flint/FlintBenchmark
+        run: cargo test --release --lib -p flint-steel test_run_all_flint_benchmarks -- --nocapture
+
+      - name: Upload Flint summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flint-summary
+          path: flint-steel/log/flint_summary.json
