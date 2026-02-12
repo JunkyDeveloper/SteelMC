@@ -31,12 +31,12 @@ jobs:
           path: ${{ github.workspace }}/flint
 
       - name: Check the tests directory is not empty
-        working-directory: ${{ github.workspace }}/flint/FlintBenchmark
+        working-directory: ${{ github.workspace }}/flint
         run: find ./tests -type f -printf '.' | wc -c
       - name: Run flint-steel tests
         timeout-minutes: 15
         env:
-          TEST_PATH: ${{ github.workspace }}/flint/FlintBenchmark
+          TEST_PATH: ${{ github.workspace }}/flint/tests
         run: cargo test --release --lib -p flint-steel test_run_all_flint_benchmarks -- --nocapture
 
       - name: Upload Flint summary
