@@ -169,6 +169,7 @@ impl Server {
             }
         }
 
+        player.reset_health_if_dead();
         let world = &self.overworld();
 
         // Get gamerule values
@@ -262,6 +263,8 @@ impl Server {
         // Send position sync to client (ensures client is at the correct loaded position)
         // This must be sent after the player is added to the world
         player.teleport(pos.x, pos.y, pos.z, yaw, pitch);
+
+        player.reset_sent_info();
 
         world.add_player(player.clone());
     }
