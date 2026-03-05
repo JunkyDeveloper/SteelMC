@@ -66,7 +66,6 @@ impl PortalTest {
             Axis::Z => Direction::North,
             Axis::Y => return None,
         };
-        tracing::info!("axis: {:?}", dir);
 
         // searches the bottom obsidian
         let mut cur = pos;
@@ -80,18 +79,13 @@ impl PortalTest {
 
         // searches for the left obsidian (-1) because we don't want to be at the obsidian block
         let to_left = Self::get_width(world, cur, dir, shape);
-        tracing::info!("to_left: {}", to_left);
         cur = cur.relative_n(dir, to_left as i32);
 
-        tracing::info!("left_bottom: {:?}", cur);
-
         let width = Self::get_width(world, cur, dir.opposite(), shape) + 1;
-        tracing::info!("width: {}", width);
         if width < Self::MIN_WIDTH {
             return None;
         }
         let height = Self::get_height(world, cur, dir, shape);
-        tracing::info!("height: {}", height);
         if height < Self::MIN_HEIGHT {
             return None;
         }
@@ -99,7 +93,6 @@ impl PortalTest {
 
         // Validate entire frame
         if !Self::validate_frame(world, cur, width, height, dir.opposite(), shape) {
-            tracing::info!("invalid frame");
             return None;
         }
 
@@ -129,7 +122,6 @@ impl PortalTest {
         let mut cur = pos;
         for i in 1..Self::MAX_HEIGHT {
             let next = cur.above();
-            tracing::info!("next: {:?}", next);
             if !Self::is_valid_interior(world, next) && Self::is_frame_block(world, next, shape) {
                 return i;
             }
