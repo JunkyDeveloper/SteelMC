@@ -1,13 +1,14 @@
 //! Nether portal block behavior.
 
-use steel_registry::blocks::BlockRef;
-use steel_registry::blocks::block_state_ext::BlockStateExt;
-use steel_registry::vanilla_blocks::AIR;
-use steel_utils::{BlockPos, BlockStateId, Direction};
-
 use crate::behavior::block::BlockBehaviour;
 use crate::behavior::context::BlockPlaceContext;
 use crate::world::World;
+use steel_registry::blocks::BlockRef;
+use steel_registry::blocks::block_state_ext::BlockStateExt;
+use steel_registry::blocks::properties::BlockStateProperties;
+use steel_registry::vanilla_blocks::AIR;
+use steel_utils::math::Axis;
+use steel_utils::{BlockPos, BlockStateId, Direction};
 
 /// Behavior for the nether portal block.
 pub struct NetherPortalBlock {
@@ -32,7 +33,11 @@ impl BlockBehaviour for NetherPortalBlock {
         _neighbor_pos: BlockPos,
         neighbor_state: BlockStateId,
     ) -> BlockStateId {
-        if neighbor_state.is_air() {
+        if neighbor_state.is_air()
+            && (state.get_value(&BlockStateProperties::AXIS) == _direction.axis()
+                || _direction.axis() == Axis::Y)
+            && neighbor_state.0 != state.0
+        {
             return AIR.default_state();
         }
         state
