@@ -13,7 +13,7 @@ use steel_utils::{BlockPos, Direction};
 use crate::world::World;
 
 /// A detected portal shape with axis, position, and dimensions.
-pub struct PortalTest {
+pub struct PortalShape {
     /// The axis of the portal (X or Z).
     pub axis: Axis,
     /// Bottom-left corner of the portal interior.
@@ -27,39 +27,39 @@ pub struct PortalTest {
 }
 
 /// Definition of a portal shape in rectangular form, like the nether portal frame.
-pub struct PortalShape {
+pub struct PortalFrameConfig {
     /// min size of the portal in x direction
-    pub min_x: u32,
+    pub min_width: u32,
     /// max size of the portal in x direction
-    pub max_x: u32,
+    pub max_width: u32,
     /// min size of the portal in y direction
-    pub min_y: u32,
+    pub min_height: u32,
     /// max size of the portal in y direction
-    pub max_y: u32,
+    pub max_height: u32,
     /// The block type of the frame.
     pub frame: BlockRef,
     /// The block type of the portal.
     pub portal: BlockRef,
 }
 
-impl PortalTest {
-    const MIN_WIDTH: u32 = 2;
-    const MAX_WIDTH: u32 = 21;
-    const MIN_HEIGHT: u32 = 3;
-    const MAX_HEIGHT: u32 = 21;
-
+impl PortalShape {
     /// Tries to find a valid portal shape from a position inside or adjacent to a frame.
     pub fn find_portal_shape(
         world: &World,
         fire_pos: BlockPos,
-        shape: &PortalShape,
+        shape: &PortalFrameConfig,
     ) -> Option<Self> {
         Self::try_axis(world, fire_pos, Axis::X, shape)
             .or_else(|| Self::try_axis(world, fire_pos, Axis::Z, shape))
     }
     /// Tries to find a valid portal
     /// It doesn't loop over the obsidian, it loops over the air in the portal, to get the size of the portal
-    fn try_axis(world: &World, pos: BlockPos, axis: Axis, shape: &PortalShape) -> Option<Self> {
+    fn try_axis(
+        world: &World,
+        pos: BlockPos,
+        axis: Axis,
+        shape: &PortalFrameConfig,
+    ) -> Option<Self> {
         // Width direction: portal axis=X means width along Z, axis=Z means width along X
         let dir: Direction = match axis {
             Axis::X => Direction::East,
@@ -69,7 +69,7 @@ impl PortalTest {
 
         // searches the bottom obsidian
         let mut cur = pos;
-        for _ in 0..=Self::MAX_HEIGHT as i32 {
+        for _ in 0..=shape.max_height as i32 {
             let next = BlockPos::new(cur.x(), cur.y() - 1, cur.z());
             if Self::is_frame_block(world, next, shape) {
                 break;
@@ -82,11 +82,11 @@ impl PortalTest {
         cur = cur.relative_n(dir, to_left as i32);
 
         let width = Self::get_width(world, cur, dir.opposite(), shape) + 1;
-        if width < Self::MIN_WIDTH {
+        if width < shape.min_width {
             return None;
         }
         let height = Self::get_height(world, cur, dir, shape);
-        if height < Self::MIN_HEIGHT {
+        if height < shape.min_height {
             return None;
         }
         // Measure width (walk right from bottom_left)
@@ -106,8 +106,13 @@ impl PortalTest {
     }
 
     /// Returns the width - 1 of the portal interior starting from the given position.
-    fn get_width(world: &World, pos: BlockPos, direction: Direction, shape: &PortalShape) -> u32 {
-        for i in 1..Self::MAX_WIDTH {
+    fn get_width(
+        world: &World,
+        pos: BlockPos,
+        direction: Direction,
+        shape: &PortalFrameConfig,
+    ) -> u32 {
+        for i in 1..shape.max_width {
             let next = pos.relative_n(direction, i as i32);
             if !Self::is_valid_interior(world, next) && Self::is_frame_block(world, next, shape) {
                 return i - 1;
@@ -118,9 +123,14 @@ impl PortalTest {
         }
         0
     }
-    fn get_height(world: &World, pos: BlockPos, direction: Direction, shape: &PortalShape) -> u32 {
+    fn get_height(
+        world: &World,
+        pos: BlockPos,
+        direction: Direction,
+        shape: &PortalFrameConfig,
+    ) -> u32 {
         let mut cur = pos;
-        for i in 1..Self::MAX_HEIGHT {
+        for i in 1..shape.max_height {
             let next = cur.above();
             if !Self::is_valid_interior(world, next) && Self::is_frame_block(world, next, shape) {
                 return i;
@@ -133,7 +143,7 @@ impl PortalTest {
         0
     }
 
-    fn is_frame_block(world: &World, pos: BlockPos, shape: &PortalShape) -> bool {
+    fn is_frame_block(world: &World, pos: BlockPos, shape: &PortalFrameConfig) -> bool {
         ptr::eq(world.get_block_state(&pos).get_block(), shape.frame)
     }
 
@@ -148,7 +158,7 @@ impl PortalTest {
         width: u32,
         height: u32,
         direction: Direction,
-        shape: &PortalShape,
+        shape: &PortalFrameConfig,
     ) -> bool {
         // Check top frame row
         let top_row = bottom_left.above_n(height as i32);
