@@ -29,13 +29,13 @@ impl BlockBehaviour for NetherPortalBlock {
         state: BlockStateId,
         _world: &World,
         _pos: BlockPos,
-        _direction: Direction,
+        direction: Direction,
         _neighbor_pos: BlockPos,
         neighbor_state: BlockStateId,
     ) -> BlockStateId {
         if neighbor_state.is_air()
-            && (state.get_value(&BlockStateProperties::AXIS) == _direction.axis()
-                || _direction.axis() == Axis::Y)
+            && (state.get_value(&BlockStateProperties::AXIS) == direction.axis()
+                || direction.axis() == Axis::Y)
             && neighbor_state.0 != state.0
         {
             return AIR.default_state();
