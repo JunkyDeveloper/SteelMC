@@ -35,6 +35,15 @@ pub enum MonsterSpawnLightLevel {
 
 pub type DimensionTypeRef = &'static DimensionType;
 
+impl PartialEq for DimensionTypeRef {
+    #[allow(clippy::disallowed_methods)] // This IS the PartialEq impl; ptr::eq is correct here
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(*self, *other)
+    }
+}
+
+impl Eq for DimensionTypeRef {}
+
 pub struct DimensionTypeRegistry {
     dimension_types_by_id: Vec<DimensionTypeRef>,
     dimension_types_by_key: FxHashMap<Identifier, usize>,
@@ -109,6 +118,11 @@ impl DimensionTypeRegistry {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.dimension_types_by_id.is_empty()
+    }
+
+    #[must_use]
+    pub fn get_ids(&self) -> Vec<Identifier> {
+        self.dimension_types_by_key.keys().cloned().collect()
     }
 }
 

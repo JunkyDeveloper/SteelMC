@@ -3,15 +3,12 @@
 //! This module defines the data format for saving and loading player state.
 //! The format is designed to be vanilla-compatible where possible.
 
-use std::sync::atomic::Ordering;
-
 use simdnbt::{
     ToNbtTag,
     borrow::{BaseNbtCompound as BorrowedNbtCompound, NbtCompound as NbtCompoundView},
     owned::{NbtCompound, NbtList, NbtTag},
 };
 use steel_registry::item_stack::ItemStack;
-use steel_utils::types::GameType;
 
 use crate::inventory::container::Container;
 
@@ -64,6 +61,10 @@ pub struct PersistentPlayerData {
     /// Current game mode (0=survival, 1=creative, 2=adventure, 3=spectator).
     /// NBT tag: `playerGameType` (Int)
     pub game_mode: i32,
+
+    /// Previous game mode of the player
+    /// NBT tag: `previousPlayerGameType` (Int)
+    pub prev_game_mode: i32,
 
     /// Player abilities (flight, invulnerability, etc.).
     /// NBT tag: `abilities` (Compound)
@@ -120,7 +121,11 @@ impl PersistentPlayerData {
     pub fn from_player(player: &Player) -> Self {
         let pos = *player.position.lock();
         let (yaw, pitch) = player.rotation.load();
-        let delta = *player.delta_movement.lock();
+        let delta = player.movement.lock().delta_movement;
+        let (on_ground, fall_flying) = {
+            let es = player.entity_state.lock();
+            (es.on_ground, es.fall_flying)
+        };
         let abilities = player.abilities.lock();
         let inventory = player.inventory.lock();
         let entity_data = player.entity_data.lock();
@@ -142,10 +147,11 @@ impl PersistentPlayerData {
             pos: [pos.x, pos.y, pos.z],
             motion: [delta.x, delta.y, delta.z],
             rotation: [yaw, pitch],
-            on_ground: player.on_ground.load(Ordering::Relaxed),
-            fall_flying: player.fall_flying.load(Ordering::Relaxed),
+            on_ground,
+            fall_flying,
             health: *entity_data.health.get(),
             game_mode: player.game_mode.load() as i32,
+            prev_game_mode: player.prev_game_mode.load() as i32,
             abilities: PersistentAbilities {
                 invulnerable: abilities.invulnerable,
                 flying: abilities.flying,
@@ -263,6 +269,7 @@ impl PersistentPlayerData {
         let fall_flying = nbt.byte("FallFlying").is_some_and(|b| b != 0);
         let health = nbt.float("Health").unwrap_or(20.0);
         let game_mode = nbt.int("playerGameType").unwrap_or(0);
+        let prev_game_mode = nbt.int("previousPlayerGameType").unwrap_or(0);
         let selected_slot = nbt.int("SelectedItemSlot").unwrap_or(0);
         let dimension = nbt.string("Dimension").map_or_else(
             || "minecraft:overworld".to_string(),
@@ -297,6 +304,7 @@ impl PersistentPlayerData {
             fall_flying,
             health,
             game_mode,
+            prev_game_mode,
             abilities,
             inventory,
             selected_slot,
@@ -392,26 +400,26 @@ impl PersistentPlayerData {
         player.rotation.store((self.rotation[0], self.rotation[1]));
 
         // Motion/velocity
-        *player.delta_movement.lock() =
+        player.movement.lock().delta_movement =
             Vector3::new(self.motion[0], self.motion[1], self.motion[2]);
 
         // Ground state
-        player.on_ground.store(self.on_ground, Ordering::Relaxed);
-        player
-            .fall_flying
-            .store(self.fall_flying, Ordering::Relaxed);
+        {
+            let mut es = player.entity_state.lock();
+            es.on_ground = self.on_ground;
+            es.fall_flying = self.fall_flying;
+        }
 
         // Health
         player.entity_data.lock().health.set(self.health);
 
         // Game mode
-        let game_mode = match self.game_mode {
-            1 => GameType::Creative,
-            2 => GameType::Adventure,
-            3 => GameType::Spectator,
-            _ => GameType::Survival,
-        };
+        let game_mode = self.game_mode.into();
         player.game_mode.store(game_mode);
+
+        // Previous game mode
+        let prev_game_mode = self.prev_game_mode.into();
+        player.prev_game_mode.store(prev_game_mode);
 
         // Abilities
         *player.abilities.lock() = self.abilities.clone().into();

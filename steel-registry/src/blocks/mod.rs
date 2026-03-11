@@ -119,6 +119,15 @@ impl Block {
 
 pub type BlockRef = &'static Block;
 
+impl PartialEq for BlockRef {
+    #[allow(clippy::disallowed_methods)] // This IS the PartialEq impl; ptr::eq is correct here
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(*self, *other)
+    }
+}
+
+impl Eq for BlockRef {}
+
 // The central registry for all blocks.
 pub struct BlockRegistry {
     blocks_by_id: Vec<BlockRef>,
@@ -230,7 +239,7 @@ impl BlockRegistry {
     }
 
     #[must_use]
-    pub fn get_properties(&self, id: BlockStateId) -> Vec<(&str, &str)> {
+    pub fn get_properties(&self, id: BlockStateId) -> Vec<(&'static str, &'static str)> {
         let block = self.by_state_id(id).expect("Invalid state ID");
 
         // If block has no properties, return empty vec
@@ -566,6 +575,17 @@ impl BlockRegistry {
             self.get_collision_shape(state_id),
             self.get_outline_shape(state_id),
         )
+    }
+
+    pub fn copy_matching_properties(&self, source: BlockStateId, target: BlockRef) -> BlockStateId {
+        let props = self.get_properties(source);
+        let matching: Vec<(&str, &str)> = props
+            .iter()
+            .filter(|(name, _)| target.properties.iter().any(|p| p.get_name() == *name))
+            .copied()
+            .collect();
+        self.state_id_from_properties(&target.key, &matching)
+            .unwrap_or_else(|| self.get_default_state_id(target))
     }
 }
 

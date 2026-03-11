@@ -1,5 +1,6 @@
 use crate::block_entity::{BLOCK_ENTITIES, SharedBlockEntity};
 use crate::chunk::chunk_access::{ChunkAccess, ChunkStatus};
+use crate::chunk::heightmap::{ChunkHeightmaps, Heightmap, HeightmapType};
 use crate::chunk::level_chunk::LevelChunk;
 use crate::chunk::paletted_container::PalettedContainer;
 use crate::chunk::proto_chunk::ProtoChunk;
@@ -14,15 +15,43 @@ use std::io::Cursor;
 use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{io, sync::Weak};
-use steel_registry::{REGISTRY, Registry};
-use steel_utils::{BlockPos, BlockStateId, ChunkPos, Identifier};
+use steel_registry::{REGISTRY, Registry, vanilla_biomes};
+use steel_utils::{BlockPos, BlockStateId, ChunkPos, Direction, Identifier};
+
+use crate::world::structure::{
+    StructurePiece, StructureReferenceMap, StructureStart, StructureStartMap,
+};
+
+/// Converts `Option<Direction>` to the vanilla 2D data value encoding for persistence.
+/// -1 = none, 0 = south, 1 = west, 2 = north, 3 = east.
+const fn direction_to_2d(dir: Option<Direction>) -> i8 {
+    match dir {
+        Some(Direction::South) => 0,
+        Some(Direction::West) => 1,
+        Some(Direction::North) => 2,
+        Some(Direction::East) => 3,
+        None | Some(Direction::Down | Direction::Up) => -1,
+    }
+}
+
+/// Converts a vanilla 2D data value to `Option<Direction>`.
+const fn direction_from_2d(value: i8) -> Option<Direction> {
+    match value {
+        0 => Some(Direction::South),
+        1 => Some(Direction::West),
+        2 => Some(Direction::North),
+        3 => Some(Direction::East),
+        _ => None,
+    }
+}
 
 use super::ram_only::RamOnlyStorage;
 use super::region_manager::RegionManager;
 use super::{
     BIOMES_PER_SECTION, BLOCKS_PER_SECTION, PersistentBiomeData, PersistentBlockEntity,
-    PersistentBlockState, PersistentChunk, PersistentEntity, PersistentSection, PersistentTick,
-    PreparedChunkSave,
+    PersistentBlockState, PersistentChunk, PersistentEntity, PersistentHeightmap, PersistentPoi,
+    PersistentSection, PersistentStructurePiece, PersistentStructureReference,
+    PersistentStructureStart, PersistentTick, PreparedChunkSave,
 };
 
 /// Builder for creating a persistent chunk with its own palettes.
@@ -53,10 +82,7 @@ impl<'a> ChunkBuilder<'a> {
 
         let persistent = PersistentBlockState {
             name: block.key.clone(),
-            properties: properties
-                .into_iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
+            properties,
         };
 
         // Check if already exists
@@ -71,7 +97,7 @@ impl<'a> ChunkBuilder<'a> {
     }
 
     /// Ensures a biome exists in the chunk's palette, returning its index.
-    fn ensure_biome(&mut self, biome_id: u8) -> u16 {
+    fn ensure_biome(&mut self, biome_id: u16) -> u16 {
         // Get biome identifier from registry
         let biome = self
             .registry
@@ -189,6 +215,7 @@ impl ChunkStorage {
     /// Prepares chunk data for saving. Call this while holding the chunk lock,
     /// then pass the result to `save_chunk_data` after releasing the lock.
     #[must_use]
+    #[allow(clippy::similar_names)] // `pois` vs `pos` are distinct
     pub fn prepare_chunk_save(chunk: &ChunkAccess) -> Option<PreparedChunkSave> {
         if !chunk.is_dirty() {
             return None;
@@ -218,12 +245,33 @@ impl ChunkStorage {
             })
             .unwrap_or_default();
 
+        // Serialize heightmaps
+        let heightmaps = chunk
+            .as_full()
+            .map(|c| Self::heightmaps_to_persistent(&c.heightmaps.read()))
+            .unwrap_or_default();
+
+        // Serialize structure data (works for both proto and full chunks)
+        let structure_starts = Self::structure_starts_to_persistent(&chunk.structure_starts());
+        let structure_references =
+            Self::structure_references_to_persistent(&chunk.structure_references());
+
+        // Collect POI occupancy data from world storage
+        let pois = chunk
+            .as_full()
+            .map(|c| Self::pois_to_persistent(c, pos))
+            .unwrap_or_default();
+
         let persistent = Self::to_persistent(
             chunk.sections(),
             &block_entities,
             &entities,
             block_ticks,
             fluid_ticks,
+            heightmaps,
+            structure_starts,
+            structure_references,
+            pois,
             pos,
         );
 
@@ -231,12 +279,17 @@ impl ChunkStorage {
     }
 
     /// Converts chunk data to persistent format.
+    #[allow(clippy::too_many_arguments, clippy::similar_names)]
     fn to_persistent(
         sections: &Sections,
         block_entities: &[SharedBlockEntity],
         entities: &[SharedEntity],
         block_ticks: Vec<PersistentTick>,
         fluid_ticks: Vec<PersistentTick>,
+        heightmaps: Vec<PersistentHeightmap>,
+        structure_starts: Vec<PersistentStructureStart>,
+        structure_references: Vec<PersistentStructureReference>,
+        pois: Vec<PersistentPoi>,
         chunk_pos: ChunkPos,
     ) -> PersistentChunk {
         let mut builder = ChunkBuilder::new(&REGISTRY);
@@ -317,6 +370,10 @@ impl ChunkStorage {
             entities: persistent_entities,
             block_ticks,
             fluid_ticks,
+            heightmaps,
+            structure_starts,
+            structure_references,
+            pois,
         }
     }
 
@@ -374,7 +431,7 @@ impl ChunkStorage {
 
     /// Converts runtime biome data to persistent format.
     fn biomes_to_persistent(
-        biomes: &PalettedContainer<u8, 4>,
+        biomes: &PalettedContainer<u16, 4>,
         builder: &mut ChunkBuilder,
     ) -> PersistentBiomeData {
         match biomes {
@@ -440,11 +497,20 @@ impl ChunkStorage {
             .map(|section| Self::persistent_to_section(section, persistent))
             .collect();
 
+        // Reconstruct structure data
+        let structure_starts = Self::persistent_to_structure_starts(&persistent.structure_starts);
+        let structure_references =
+            Self::persistent_to_structure_references(&persistent.structure_references);
+
         match status {
             ChunkStatus::Full => {
                 // Reconstruct scheduled ticks from persistent data
                 let block_ticks = Self::persistent_to_block_ticks(&persistent.block_ticks, pos);
                 let fluid_ticks = Self::persistent_to_fluid_ticks(&persistent.fluid_ticks, pos);
+
+                // Reconstruct heightmaps from persistent data
+                let heightmaps =
+                    Self::persistent_to_heightmaps(&persistent.heightmaps, min_y, height);
 
                 let chunk = LevelChunk::from_disk(
                     Sections::from_owned(sections.into_boxed_slice()),
@@ -454,6 +520,9 @@ impl ChunkStorage {
                     level.clone(),
                     block_ticks,
                     fluid_ticks,
+                    heightmaps,
+                    structure_starts,
+                    structure_references,
                 );
 
                 // Load block entities
@@ -473,6 +542,25 @@ impl ChunkStorage {
                     }
                 }
 
+                // Restore POI ticket state (populate_poi ran in from_disk, now apply saved occupancy)
+                if !persistent.pois.is_empty()
+                    && let Some(world) = level.upgrade()
+                {
+                    let tickets: Vec<_> = persistent
+                        .pois
+                        .iter()
+                        .map(|p| {
+                            let block_pos = BlockPos::new(
+                                pos.0.x * 16 + i32::from(p.x),
+                                i32::from(p.y),
+                                pos.0.y * 16 + i32::from(p.z),
+                            );
+                            (block_pos, p.free_tickets)
+                        })
+                        .collect();
+                    world.poi_storage.lock().restore_tickets(pos, &tickets);
+                }
+
                 // Clear dirty flag since we just loaded (add_and_register marks dirty)
                 chunk.dirty.store(false, Ordering::Release);
 
@@ -484,6 +572,8 @@ impl ChunkStorage {
                 status,
                 min_y,
                 height,
+                structure_starts,
+                structure_references,
             )),
         }
     }
@@ -709,6 +799,151 @@ impl ChunkStorage {
         FluidTickList::from_ticks(ticks)
     }
 
+    /// Converts chunk heightmaps to persistent format for saving.
+    fn heightmaps_to_persistent(heightmaps: &ChunkHeightmaps) -> Vec<PersistentHeightmap> {
+        HeightmapType::final_types()
+            .iter()
+            .enumerate()
+            .map(|(i, &hm_type)| {
+                let hm = heightmaps.get(hm_type);
+                PersistentHeightmap {
+                    heightmap_type: i as u8,
+                    data: hm.raw_data().to_vec(),
+                }
+            })
+            .collect()
+    }
+
+    /// Reconstructs chunk heightmaps from persistent data.
+    fn persistent_to_heightmaps(
+        persistent: &[PersistentHeightmap],
+        min_y: i32,
+        height: i32,
+    ) -> ChunkHeightmaps {
+        let final_types = HeightmapType::final_types();
+        let mut heightmaps = ChunkHeightmaps::new(min_y, height);
+
+        for ph in persistent {
+            let Some(&hm_type) = final_types.get(ph.heightmap_type as usize) else {
+                continue;
+            };
+            if ph.data.len() != 256 {
+                tracing::warn!(
+                    "Heightmap data length mismatch: expected 256, got {}. Skipping.",
+                    ph.data.len()
+                );
+                continue;
+            }
+            let mut data = Box::new([0u16; 256]);
+            data.copy_from_slice(&ph.data);
+            *heightmaps.get_mut(hm_type) = Heightmap::from_raw_data(hm_type, min_y, height, data);
+        }
+
+        heightmaps
+    }
+
+    /// Converts structure starts to persistent format for saving.
+    fn structure_starts_to_persistent(starts: &StructureStartMap) -> Vec<PersistentStructureStart> {
+        starts
+            .values()
+            .map(|start| PersistentStructureStart {
+                structure: start.structure.clone(),
+                chunk_x: start.chunk_pos.0.x,
+                chunk_z: start.chunk_pos.0.y,
+                references: start.references,
+                pieces: start
+                    .pieces
+                    .iter()
+                    .map(|piece| PersistentStructurePiece {
+                        piece_type: piece.piece_type.clone(),
+                        bounding_box: piece.bounding_box,
+                        gen_depth: piece.gen_depth,
+                        orientation: direction_to_2d(piece.orientation),
+                        nbt_data: piece.nbt_data.clone(),
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
+    /// Converts structure references to persistent format for saving.
+    fn structure_references_to_persistent(
+        refs: &StructureReferenceMap,
+    ) -> Vec<PersistentStructureReference> {
+        refs.iter()
+            .map(|(structure, positions)| PersistentStructureReference {
+                structure: structure.clone(),
+                references: positions.iter().map(ChunkPos::as_i64).collect(),
+            })
+            .collect()
+    }
+
+    /// Reconstructs structure starts from persistent data.
+    fn persistent_to_structure_starts(
+        persistent: &[PersistentStructureStart],
+    ) -> StructureStartMap {
+        persistent
+            .iter()
+            .map(|ps| {
+                let pieces = ps
+                    .pieces
+                    .iter()
+                    .map(|pp| StructurePiece {
+                        piece_type: pp.piece_type.clone(),
+                        bounding_box: pp.bounding_box,
+                        gen_depth: pp.gen_depth,
+                        orientation: direction_from_2d(pp.orientation),
+                        nbt_data: pp.nbt_data.clone(),
+                    })
+                    .collect();
+
+                let start = StructureStart {
+                    structure: ps.structure.clone(),
+                    chunk_pos: ChunkPos::new(ps.chunk_x, ps.chunk_z),
+                    references: ps.references,
+                    pieces,
+                };
+                (ps.structure.clone(), start)
+            })
+            .collect()
+    }
+
+    /// Reconstructs structure references from persistent data.
+    fn persistent_to_structure_references(
+        persistent: &[PersistentStructureReference],
+    ) -> StructureReferenceMap {
+        persistent
+            .iter()
+            .map(|pr| {
+                let positions = pr
+                    .references
+                    .iter()
+                    .map(|&l| ChunkPos::from_i64(l))
+                    .collect();
+                (pr.structure.clone(), positions)
+            })
+            .collect()
+    }
+
+    /// Collects POI occupancy data from the world's POI storage for this chunk.
+    fn pois_to_persistent(chunk: &LevelChunk, chunk_pos: ChunkPos) -> Vec<PersistentPoi> {
+        let Some(world) = chunk.get_level() else {
+            return Vec::new();
+        };
+        world
+            .poi_storage
+            .lock()
+            .collect_for_chunk(chunk_pos)
+            .into_iter()
+            .map(|(pos, free_tickets)| PersistentPoi {
+                x: (pos.0.x - chunk_pos.0.x * 16) as u8,
+                y: pos.0.y as i16,
+                z: (pos.0.z - chunk_pos.0.y * 16) as u8,
+                free_tickets,
+            })
+            .collect()
+    }
+
     /// Converts a persistent section to runtime format.
     fn persistent_to_section(
         persistent: &PersistentSection,
@@ -763,7 +998,7 @@ impl ChunkStorage {
     fn persistent_to_biomes(
         persistent: &PersistentBiomeData,
         chunk: &PersistentChunk,
-    ) -> PalettedContainer<u8, 4> {
+    ) -> PalettedContainer<u16, 4> {
         match persistent {
             PersistentBiomeData::Homogeneous { biome } => {
                 let biome_id = Self::resolve_biome(chunk, *biome);
@@ -777,12 +1012,12 @@ impl ChunkStorage {
                 let indices = unpack_indices(biome_data, *bits_per_entry, BIOMES_PER_SECTION);
 
                 // Resolve section-local palette -> chunk palette -> runtime
-                let runtime_palette: Vec<u8> = palette
+                let runtime_palette: Vec<u16> = palette
                     .iter()
                     .map(|&idx| Self::resolve_biome(chunk, idx))
                     .collect();
 
-                let mut cube = Box::new([[[0u8; 4]; 4]; 4]);
+                let mut cube = Box::new([[[0u16; 4]; 4]; 4]);
                 for (i, &idx) in indices.iter().enumerate() {
                     let y = i / 16;
                     let z = (i / 4) % 4;
@@ -797,31 +1032,23 @@ impl ChunkStorage {
 
     /// Resolves a chunk palette index to a runtime `BlockStateId`.
     fn resolve_block_state(chunk: &PersistentChunk, index: u16) -> BlockStateId {
-        if let Some(state) = chunk.block_states.get(index as usize) {
-            // Convert properties to the format expected by the registry
-            let properties: Vec<(&str, &str)> = state
-                .properties
-                .iter()
-                .map(|(k, v)| (k.as_str(), v.as_str()))
-                .collect();
-
-            if let Some(state_id) = REGISTRY
+        if let Some(state) = chunk.block_states.get(index as usize)
+            && let Some(state_id) = REGISTRY
                 .blocks
-                .state_id_from_properties(&state.name, &properties)
-            {
-                return state_id;
-            }
+                .state_id_from_properties(&state.name, &state.properties)
+        {
+            return state_id;
         }
         BlockStateId(0) // Air fallback
     }
 
     /// Resolves a chunk palette index to a runtime biome ID.
-    fn resolve_biome(chunk: &PersistentChunk, index: u16) -> u8 {
+    fn resolve_biome(chunk: &PersistentChunk, index: u16) -> u16 {
         if let Some(biome_key) = chunk.biomes.get(index as usize)
             && let Some(id) = REGISTRY.biomes.id_from_key(biome_key)
         {
-            return id as u8;
+            return id as u16;
         }
-        0 // Plains fallback
+        *REGISTRY.biomes.get_id(&vanilla_biomes::PLAINS) as u16
     }
 }

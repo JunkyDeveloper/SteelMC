@@ -1,5 +1,5 @@
 //! This module contains the `World` struct, which represents a world.
-use crate::chunk::chunk_map::ChunkMapTickTimings;
+
 use std::path::Path;
 use std::{
     io,
@@ -10,10 +10,12 @@ use std::{
     time::Duration,
 };
 
+use crate::{chunk::chunk_map::ChunkMapTickTimings, world::weather::Weather};
+
 use sha2::{Digest, Sha256};
 use steel_protocol::packets::game::{
-    CBlockDestruction, CBlockEvent, CLevelEvent, CPlayerChat, CPlayerInfoUpdate, CRemoveEntities,
-    CSound, CSystemChat, SoundSource,
+    CBlockDestruction, CBlockEvent, CGameEvent, CLevelEvent, CPlayerChat, CPlayerInfoUpdate,
+    CRemoveEntities, CSound, CSystemChat, GameEventType, SoundSource,
 };
 use steel_protocol::utils::ConnectionProtocol;
 use steel_protocol::{
@@ -22,44 +24,67 @@ use steel_protocol::{
 };
 
 use simdnbt::owned::NbtCompound;
-use steel_registry::blocks::BlockRef;
 use steel_registry::blocks::block_state_ext::BlockStateExt;
 use steel_registry::blocks::properties::Direction;
+use steel_registry::blocks::shapes::{AABBd, VoxelShape};
 use steel_registry::fluid::FluidRef;
 use steel_registry::game_rules::{GameRuleRef, GameRuleValue};
 use steel_registry::item_stack::ItemStack;
 use steel_registry::level_events;
+use steel_registry::loot_table::LootContext;
 use steel_registry::vanilla_blocks;
-use steel_registry::vanilla_game_rules::RANDOM_TICK_SPEED;
+use steel_registry::vanilla_game_rules::{BLOCK_DROPS, RANDOM_TICK_SPEED};
 use steel_registry::{REGISTRY, dimension_type::DimensionTypeRef};
-use steel_registry::{block_entity_type::BlockEntityTypeRef, vanilla_game_rules::ADVANCE_TIME};
+use steel_registry::{block_entity_type::BlockEntityTypeRef, vanilla_dimension_types};
+use steel_registry::{
+    blocks::BlockRef, vanilla_game_rules::ADVANCE_TIME, vanilla_game_rules::ADVANCE_WEATHER,
+};
 
-use steel_registry::blocks::shapes::{AABBd, VoxelShape};
-use steel_utils::locks::SyncRwLock;
+use steel_utils::locks::{SyncMutex, SyncRwLock};
+
+/// Controls how a block position is treated during a raytrace traversal.
+///
+/// Returned by the predicate closure passed to [`World::raytrace`].
+#[derive(Debug)]
+pub enum RaytraceAction {
+    /// Skip this block and continue traversal (transparent block).
+    Pass,
+    /// Test the block's voxel shape for a precise ray intersection.
+    CheckShape,
+    /// Immediately treat this block as a hit without shape testing.
+    ImmediateHit,
+}
+
 use steel_utils::math::Vector3;
 use steel_utils::{BlockPos, BlockStateId, ChunkPos, SectionPos, types::UpdateFlags};
 use tokio::{runtime::Runtime, time::Instant};
 
 use crate::{
     ChunkMap,
-    behavior::BLOCK_BEHAVIORS,
+    behavior::BlockStateBehaviorExt,
+    behavior::{BLOCK_BEHAVIORS, FLUID_BEHAVIORS},
     block_entity::SharedBlockEntity,
     chunk_saver::{ChunkStorage, RamOnlyStorage, RegionManager},
     config::STEEL_CONFIG,
     entity::{EntityCache, EntityTracker, RemovalReason, SharedEntity, entities::ItemEntity},
+    fluid::fluid_state_to_block,
     level_data::LevelDataManager,
     player::{LastSeen, Player, connection::NetworkConnection},
+    poi::PointOfInterestStorage,
 };
 
 mod player_area_map;
 mod player_map;
+pub mod structure;
 pub mod tick_scheduler;
+mod weather;
 mod world_entities;
 
 use crate::chunk::world_gen_context::ChunkGeneratorType;
 pub use crate::config::WorldStorageConfig;
 pub use player_area_map::PlayerAreaMap;
 pub use player_map::PlayerMap;
+pub use tick_scheduler::ScheduledTick;
 
 /// Generates a random value using triangle distribution.
 ///
@@ -111,10 +136,14 @@ pub struct World {
     entity_cache: EntityCache,
     /// Entity tracker for managing which players can see which entities.
     entity_tracker: EntityTracker,
+    /// Weather Data needed for animating starting and stopping of rain clientside
+    pub weather: SyncMutex<Weather>,
     /// Monotonic counter for `sub_tick_order` on scheduled ticks.
     /// Provides stable ordering when multiple ticks fire on the same game tick
     /// with the same priority.
     sub_tick_count: AtomicI64,
+    /// Point of interest storage for efficient spatial queries of special blocks.
+    pub poi_storage: SyncMutex<PointOfInterestStorage>,
 }
 
 impl World {
@@ -162,6 +191,14 @@ impl World {
         //         .get_default_state_id(vanilla_blocks::GRASS_BLOCK), // Grass Block
         // )));
 
+        let mut weather = Weather::default();
+        if level_data.is_raining() {
+            weather.rain_level = 1.0;
+            if level_data.is_thundering() {
+                weather.thunder_level = 1.0;
+            }
+        }
+
         Ok(Arc::new_cyclic(|weak_self: &Weak<World>| Self {
             chunk_map: Arc::new(ChunkMap::new_with_storage(
                 chunk_runtime,
@@ -177,7 +214,9 @@ impl World {
             tick_runs_normally: AtomicBool::new(true),
             entity_cache: EntityCache::new(),
             entity_tracker: EntityTracker::new(),
+            weather: SyncMutex::new(weather),
             sub_tick_count: AtomicI64::new(0),
+            poi_storage: SyncMutex::new(PointOfInterestStorage::new()),
         }))
     }
 
@@ -310,19 +349,43 @@ impl World {
     }
 
     /// Gets the value of a game rule.
+    /// WARNING: this function acquires a read lock on the level data.
+    /// if you already have a write lock on level data, this will DEADLOCK
     #[must_use]
     pub fn get_game_rule(&self, rule: GameRuleRef) -> GameRuleValue {
-        let level_data = self.level_data.read();
-        level_data
+        let guard = self.level_data.read();
+        self.get_game_rule_with_guard(rule, &guard)
+    }
+
+    /// Gets the value of a game rule on the `LevelDataManager` guard being passed in.
+    #[must_use]
+    pub fn get_game_rule_with_guard(
+        &self,
+        rule: GameRuleRef,
+        guard: &LevelDataManager,
+    ) -> GameRuleValue {
+        guard
             .data()
             .game_rules_values
             .get(rule, &REGISTRY.game_rules)
     }
 
     /// Sets the value of a game rule.
+    /// WARNING: this function acquires a write lock on the level data.
+    /// if you already have a read or write lock on level data, this will DEADLOCK
     pub fn set_game_rule(&self, rule: GameRuleRef, value: GameRuleValue) -> bool {
-        let mut level_data = self.level_data.write();
-        level_data
+        let mut guard = self.level_data.write();
+        self.set_game_rule_with_guard(rule, value, &mut guard)
+    }
+
+    /// Sets the value of a game rule on the `LevelDataManager` guard being passed in.
+    pub fn set_game_rule_with_guard(
+        &self,
+        rule: GameRuleRef,
+        value: GameRuleValue,
+        guard: &mut LevelDataManager,
+    ) -> bool {
+        guard
             .data_mut()
             .game_rules_values
             .set(rule, value, &REGISTRY.game_rules)
@@ -437,7 +500,6 @@ impl World {
                 );
             }
         }
-
         true
     }
 
@@ -501,12 +563,29 @@ impl World {
             // Use set_block_with_limit to prevent infinite recursion
             self.set_block_with_limit(pos, new_state, flags, update_limit);
         }
+
+        // Vanilla parity: `SimpleWaterloggedBlock.updateShape` / `Level.neighborShapeChanged` —
+        // always reschedule the fluid tick when a block with fluid has a neighbor shape change,
+        // regardless of whether the block state itself changed. This ensures waterlogged blocks
+        // (fences, slabs, stairs…) propagate their fluid when adjacent blocks are removed.
+        let fluid_state = new_state.get_fluid_state();
+        if !fluid_state.is_empty() {
+            let delay = FLUID_BEHAVIORS
+                .get_behavior(fluid_state.fluid_id)
+                .tick_delay(self);
+            self.schedule_fluid_tick_default(pos, fluid_state.fluid_id, delay);
+        }
     }
 
     /// Notifies a block that one of its neighbors changed.
     ///
     /// This is the Rust equivalent of vanilla's `Level.neighborChanged()`.
-    fn neighbor_changed(&self, pos: BlockPos, source_block: BlockRef, moved_by_piston: bool) {
+    pub(crate) fn neighbor_changed(
+        &self,
+        pos: BlockPos,
+        source_block: BlockRef,
+        moved_by_piston: bool,
+    ) {
         if !self.is_in_valid_bounds(&pos) {
             return;
         }
@@ -564,8 +643,14 @@ impl World {
     ///
     /// Returns timing information for the world tick.
     #[tracing::instrument(level = "trace", skip(self), name = "world_tick")]
-    pub fn tick_b(&self, tick_count: u64, runs_normally: bool) -> WorldTickTimings {
+    pub fn tick_b(self: &Arc<Self>, tick_count: u64, runs_normally: bool) -> WorldTickTimings {
+        // Update the world's stored game time so components (like fluids) can access it
+        {
+            let mut level_data = self.level_data.write();
+            level_data.data_mut().game_time = tick_count as i64;
+        }
         if runs_normally {
+            self.tick_weather();
             self.tick_time();
         }
 
@@ -574,6 +659,8 @@ impl World {
         let chunk_map_timings =
             self.chunk_map
                 .tick_b(self, tick_count, random_tick_speed, runs_normally);
+
+        // Scheduled ticks are now processed per-chunk in ChunkMap::execute_scheduled_ticks()
 
         // Tick players (always tick players - they can move when frozen)
         let player_tick = {
@@ -598,9 +685,168 @@ impl World {
         }
     }
 
-    // ========================================================================
-    // Scheduled Ticks
-    // ========================================================================
+    #[expect(clippy::too_many_lines)]
+    fn tick_weather(&self) {
+        if !self.can_have_weather() {
+            return;
+        }
+
+        let mut weather = self.weather.lock();
+        let raining_before = self.is_raining_with_guard(&weather);
+
+        // Advance the weather state machine (only if gamerule allows)
+        {
+            let mut level_data = self.level_data.write();
+
+            if self
+                .get_game_rule_with_guard(ADVANCE_WEATHER, &level_data)
+                .as_bool()
+                .expect("gamerule `ADVANCE_WEATHER` should always be a boolean.")
+            {
+                let clear_weather_time = level_data.clear_weather_time();
+                if clear_weather_time > 0 {
+                    level_data.set_clear_weather_time(clear_weather_time - 1);
+                    if level_data.is_thundering() {
+                        level_data.set_thunder_time(0);
+                        level_data.set_thundering(false);
+                    } else {
+                        level_data.set_thunder_time(1);
+                    }
+                    if level_data.is_raining() {
+                        level_data.set_rain_time(0);
+                        level_data.set_raining(false);
+                    } else {
+                        level_data.set_rain_time(1);
+                    }
+                } else {
+                    let thundering_time = level_data.thunder_time();
+                    if thundering_time > 0 {
+                        level_data.set_thunder_time(thundering_time - 1);
+                        if level_data.thunder_time() == 0 {
+                            let thundering = level_data.is_thundering();
+                            level_data.set_thundering(!thundering);
+                        }
+                    } else if level_data.is_thundering() {
+                        level_data.set_thunder_time(rand::random_range(3_600..=15_600));
+                    } else {
+                        level_data.set_thunder_time(rand::random_range(12_000..=180_000));
+                    }
+
+                    let rain_time = level_data.rain_time();
+                    if rain_time > 0 {
+                        level_data.set_rain_time(rain_time - 1);
+                        if level_data.rain_time() == 0 {
+                            let raining = level_data.is_raining();
+                            level_data.set_raining(!raining);
+                        }
+                    } else if level_data.is_raining() {
+                        level_data.set_rain_time(rand::random_range(12_000..=24_000));
+                    } else {
+                        level_data.set_rain_time(rand::random_range(12_000..=180_000));
+                    }
+                }
+            }
+        }
+
+        // Interpolate visual levels (always runs, even when ADVANCE_WEATHER is off)
+        let is_thundering = self.level_data.read().is_thundering();
+        let is_raining = self.level_data.read().is_raining();
+
+        weather.previous_thunder_level = weather.thunder_level;
+        if is_thundering {
+            weather.thunder_level += 0.01;
+        } else {
+            weather.thunder_level -= 0.01;
+        }
+        weather.thunder_level = weather.thunder_level.clamp(0.0, 1.0);
+
+        weather.previous_rain_level = weather.rain_level;
+        if is_raining {
+            weather.rain_level += 0.01;
+        } else {
+            weather.rain_level -= 0.01;
+        }
+        weather.rain_level = weather.rain_level.clamp(0.0, 1.0);
+
+        // Broadcast weather changes to clients
+        let raining_now = self.is_raining_with_guard(&weather);
+        if raining_before == raining_now {
+            #[expect(clippy::float_cmp)]
+            if weather.previous_rain_level != weather.rain_level {
+                self.broadcast_to_all(CGameEvent {
+                    event: GameEventType::RainLevelChange,
+                    data: weather.rain_level,
+                });
+            }
+
+            #[expect(clippy::float_cmp)]
+            if weather.previous_thunder_level != weather.thunder_level {
+                self.broadcast_to_all(CGameEvent {
+                    event: GameEventType::ThunderLevelChange,
+                    data: weather.thunder_level,
+                });
+            }
+        } else {
+            if raining_before {
+                self.broadcast_to_all(CGameEvent {
+                    event: GameEventType::StopRaining,
+                    data: 0.0,
+                });
+            } else {
+                self.broadcast_to_all(CGameEvent {
+                    event: GameEventType::StartRaining,
+                    data: 0.0,
+                });
+            }
+
+            self.broadcast_to_all(CGameEvent {
+                event: GameEventType::RainLevelChange,
+                data: weather.rain_level,
+            });
+
+            self.broadcast_to_all(CGameEvent {
+                event: GameEventType::ThunderLevelChange,
+                data: weather.thunder_level,
+            });
+        }
+    }
+
+    /// Checks whether the rain level is high enough to be considered raining.
+    /// Used for both visual rendering and gameplay logic (crop growth, fire, mob behavior).
+    ///
+    /// WARNING: this function acquires a lock on the `weather` field.
+    /// if you already have a lock on the `weather` field, this will DEADLOCK.
+    pub fn is_raining(&self) -> bool {
+        let guard = self.weather.lock();
+        self.is_raining_with_guard(&guard)
+    }
+
+    /// Checks whether the rain level is sufficient to render rain clientside using the provided guard.
+    pub fn is_raining_with_guard(&self, guard: &Weather) -> bool {
+        guard.rain_level > 0.2 && self.can_have_weather()
+    }
+
+    /// Checks whether the thunder level and rain level are high enough to be considered thundering.
+    /// Used for lightning spawning and gameplay logic.
+    ///
+    /// WARNING: this function acquires a lock on the `weather` field.
+    /// if you already have a lock on the `weather` field, this will DEADLOCK.
+    pub fn is_thundering(&self) -> bool {
+        let guard = self.weather.lock();
+        self.is_thundering_with_guard(&guard)
+    }
+
+    /// Checks whether the thunder level and rain level are sufficient to spawn thunderbolts using the provided guard.
+    pub fn is_thundering_with_guard(&self, guard: &Weather) -> bool {
+        guard.rain_level * guard.thunder_level > 0.9 && self.can_have_weather()
+    }
+
+    /// Checks whether the world can have weather.
+    pub fn can_have_weather(&self) -> bool {
+        self.dimension.has_skylight
+            && !self.dimension.has_ceiling
+            && self.dimension.key != vanilla_dimension_types::THE_END.key
+    }
 
     /// Schedules a block tick at the given position.
     ///
@@ -771,8 +1017,9 @@ impl World {
             // IMPORTANT: Index previous messages BEFORE updating the cache
             // This matches vanilla's order: pack() then push()
             let previous_messages = {
-                let recipient_cache = recipient.signature_cache.lock();
-                recipient_cache.index_previous_messages(&sender_last_seen)
+                let chat = recipient.chat.lock();
+                chat.signature_cache
+                    .index_previous_messages(&sender_last_seen)
             };
 
             log::debug!(
@@ -787,23 +1034,22 @@ impl World {
 
             // AFTER sending, update the recipient's cache using vanilla's push algorithm
             // This adds all lastSeen signatures + current signature to the cache
-            if let Some(signature) = message_signature {
-                recipient
-                    .signature_cache
-                    .lock()
-                    .push(&sender_last_seen, Some(&signature));
+            {
+                let mut chat = recipient.chat.lock();
+                if let Some(signature) = message_signature {
+                    chat.signature_cache
+                        .push(&sender_last_seen, Some(&signature));
 
-                log::debug!("  Added signature to recipient's cache and pending list");
+                    log::debug!("  Added signature to recipient's cache and pending list");
 
-                // Add to pending messages for acknowledgment tracking
-                recipient
-                    .message_validator
-                    .lock()
-                    .add_pending(Some(Box::new(signature) as Box<[u8]>));
-            } else {
-                // Even unsigned messages update the pending tracker
-                recipient.message_validator.lock().add_pending(None);
-                log::debug!("  Added unsigned message to pending list");
+                    // Add to pending messages for acknowledgment tracking
+                    chat.message_validator
+                        .add_pending(Some(Box::new(signature) as Box<[u8]>));
+                } else {
+                    // Even unsigned messages update the pending tracker
+                    chat.message_validator.add_pending(None);
+                    log::debug!("  Added unsigned message to pending list");
+                }
             }
 
             true
@@ -1036,6 +1282,259 @@ impl World {
         }
     }
 
+    /// Checks if a ray intersects with a block's selection box.
+    pub fn ray_outline_check(
+        &self,
+        block_pos: &BlockPos,
+        from: Vector3<f64>,
+        to: Vector3<f64>,
+    ) -> (bool, Option<Direction>) {
+        let state = self.get_block_state(block_pos);
+        let bounding_boxes = state.get_outline_shape();
+
+        if bounding_boxes.is_empty() {
+            return (false, None);
+        }
+
+        // Vanilla parity: pick the *closest* AABB hit across all boxes in the shape,
+        // matching VoxelShape.clip() which finds the minimum entry t-parameter.
+        let mut closest: Option<(f64, Direction)> = None;
+
+        for shape in bounding_boxes {
+            let block_vec = Vector3::new(
+                f64::from(block_pos.x()),
+                f64::from(block_pos.y()),
+                f64::from(block_pos.z()),
+            );
+            let world_min = Vector3::new(
+                f64::from(shape.min_x),
+                f64::from(shape.min_y),
+                f64::from(shape.min_z),
+            )
+            .add(&block_vec);
+            let world_max = Vector3::new(
+                f64::from(shape.max_x),
+                f64::from(shape.max_y),
+                f64::from(shape.max_z),
+            )
+            .add(&block_vec);
+
+            if let Some(hit) = Self::intersects_aabb_with_t(from, to, world_min, world_max)
+                && closest.is_none_or(|(best_t, _)| hit.0 < best_t)
+            {
+                closest = Some(hit);
+            }
+        }
+
+        match closest {
+            Some((_, dir)) => (true, Some(dir)),
+            None => (false, None),
+        }
+    }
+
+    /// Ray-AABB intersection returning the entry t-parameter and the hit face.
+    ///
+    /// Returns `Some((tmin, direction))` where `tmin` is the ray parameter at entry
+    /// and `direction` is the face normal pointing away from the hit surface.
+    /// Returns `None` if the AABB is missed or entirely behind the ray origin.
+    ///
+    /// Used internally by [`ray_outline_check`] to pick the *closest* hit across
+    /// a multi-box voxel shape, matching vanilla's `VoxelShape.clip()` behaviour.
+    fn intersects_aabb_with_t(
+        start: Vector3<f64>,
+        end: Vector3<f64>,
+        min: Vector3<f64>,
+        max: Vector3<f64>,
+    ) -> Option<(f64, Direction)> {
+        let dir = end - start;
+
+        let mut tmin = f64::NEG_INFINITY;
+        let mut tmax = f64::INFINITY;
+        let mut hit_dir = None;
+
+        macro_rules! slab {
+            ($start:expr, $dir:expr, $min:expr, $max:expr, $neg:expr, $pos:expr) => {{
+                if $dir.abs() < 1e-8 {
+                    if $start < $min || $start > $max {
+                        return None;
+                    }
+                } else {
+                    let inv = 1.0 / $dir;
+                    let mut t1 = ($min - $start) * inv;
+                    let mut t2 = ($max - $start) * inv;
+
+                    let dir_hit = if t1 > t2 {
+                        std::mem::swap(&mut t1, &mut t2);
+                        $pos
+                    } else {
+                        $neg
+                    };
+
+                    if t1 > tmin {
+                        tmin = t1;
+                        hit_dir = Some(dir_hit);
+                    }
+
+                    tmax = tmax.min(t2);
+                    if tmin > tmax {
+                        return None;
+                    }
+                }
+            }};
+        }
+
+        slab!(
+            start.x,
+            dir.x,
+            min.x,
+            max.x,
+            Direction::West,
+            Direction::East
+        );
+        slab!(start.y, dir.y, min.y, max.y, Direction::Down, Direction::Up);
+        slab!(
+            start.z,
+            dir.z,
+            min.z,
+            max.z,
+            Direction::North,
+            Direction::South
+        );
+
+        if tmax < 0.0 {
+            None
+        } else {
+            hit_dir.map(|d| (tmin, d))
+        }
+    }
+
+    /// Performs a raytrace in the world.
+    ///
+    /// Adapted from Pumpkin project.
+    pub fn raytrace<F>(
+        &self,
+        start_pos: Vector3<f64>,
+        end_pos: Vector3<f64>,
+        hit_check: F,
+    ) -> (Option<BlockPos>, Option<Direction>)
+    where
+        F: Fn(&BlockPos, &Self) -> RaytraceAction,
+    {
+        if start_pos == end_pos {
+            return (None, None);
+        }
+
+        let adjust = -1.0e-7f64;
+        let to = end_pos.lerp(&start_pos, adjust);
+        let from = start_pos.lerp(&end_pos, adjust);
+
+        let mut block = BlockPos::new(
+            from.x.floor() as i32,
+            from.y.floor() as i32,
+            from.z.floor() as i32,
+        );
+
+        match hit_check(&block, self) {
+            RaytraceAction::ImmediateHit => return (Some(block), None),
+            RaytraceAction::CheckShape => {
+                let (hit, face) = self.ray_outline_check(&block, start_pos, end_pos);
+                if hit {
+                    return (Some(block), face);
+                }
+            }
+            RaytraceAction::Pass => {}
+        }
+
+        let difference = to.sub(&from);
+
+        let step = difference.sign();
+
+        let delta = Vector3::new(
+            if step.x == 0 {
+                f64::MAX
+            } else {
+                (f64::from(step.x)) / difference.x
+            },
+            if step.y == 0 {
+                f64::MAX
+            } else {
+                (f64::from(step.y)) / difference.y
+            },
+            if step.z == 0 {
+                f64::MAX
+            } else {
+                (f64::from(step.z)) / difference.z
+            },
+        );
+
+        let mut next = Vector3::new(
+            delta.x
+                * (if step.x > 0 {
+                    1.0 - (from.x - from.x.floor())
+                } else {
+                    from.x - from.x.floor()
+                }),
+            delta.y
+                * (if step.y > 0 {
+                    1.0 - (from.y - from.y.floor())
+                } else {
+                    from.y - from.y.floor()
+                }),
+            delta.z
+                * (if step.z > 0 {
+                    1.0 - (from.z - from.z.floor())
+                } else {
+                    from.z - from.z.floor()
+                }),
+        );
+
+        while next.x <= 1.0 || next.y <= 1.0 || next.z <= 1.0 {
+            // Vanilla parity: traverseBlocks tie-breaking — Z wins on any tie.
+            // X wins only when strictly less than both Y and Z.
+            // Y wins only when strictly less than both X and Z.
+            // Everything else (including all ties) goes to Z.
+            let block_direction = if next.x < next.y && next.x < next.z {
+                block.0.x += step.x;
+                next.x += delta.x;
+                if step.x > 0 {
+                    Direction::West
+                } else {
+                    Direction::East
+                }
+            } else if next.y < next.x && next.y < next.z {
+                block.0.y += step.y;
+                next.y += delta.y;
+                if step.y > 0 {
+                    Direction::Down
+                } else {
+                    Direction::Up
+                }
+            } else {
+                block.0.z += step.z;
+                next.z += delta.z;
+                if step.z > 0 {
+                    Direction::North
+                } else {
+                    Direction::South
+                }
+            };
+
+            match hit_check(&block, self) {
+                RaytraceAction::ImmediateHit => {
+                    return (Some(block), Some(block_direction));
+                }
+                RaytraceAction::CheckShape => {
+                    let (hit, face) = self.ray_outline_check(&block, start_pos, end_pos);
+                    if hit {
+                        return (Some(block), face);
+                    }
+                }
+                RaytraceAction::Pass => {}
+            }
+        }
+
+        (None, None)
+    }
     /// Broadcasts a level event to nearby players within 64 blocks.
     ///
     /// Level events trigger sounds, particles, and animations on the client.
@@ -1119,6 +1618,61 @@ impl World {
             block_state_id as i32,
             exclude,
         );
+    }
+
+    /// Destroys a block at the given position, optionally dropping its loot.
+    ///
+    /// Sends destruction particles (skipping fire blocks), optionally drops
+    /// resources via loot table, then replaces with air.
+    pub fn destroy_block(self: &Arc<Self>, pos: BlockPos, drop_items: bool) -> bool {
+        let state = self.get_block_state(&pos);
+        if state.is_air() {
+            return false;
+        }
+
+        let block = state.get_block();
+        let is_fire = block == vanilla_blocks::FIRE || block == vanilla_blocks::SOUL_FIRE;
+        if !is_fire {
+            self.destroy_block_effect(pos, u32::from(state.0), None);
+        }
+
+        if drop_items {
+            self.drop_resources(state, pos);
+        }
+
+        // Vanilla parity: fluidState.createLegacyBlock() — breaking a waterlogged
+        // block leaves water behind instead of air.
+        let replacement = fluid_state_to_block(state.get_fluid_state());
+        self.set_block(pos, replacement, UpdateFlags::UPDATE_ALL);
+        // TODO: Fire GameEvent.BLOCK_DESTROY
+        true
+    }
+
+    /// Drops the loot for a block using its loot table.
+    ///
+    /// This is the no-tool/no-entity overload. Player block breaking uses
+    /// `block_breaking::drop_block_loot` which includes tool context for
+    /// fortune/silk touch.
+    // TODO: `spawnAfterBreak` (XP orbs for ores) not called yet.
+    pub fn drop_resources(self: &Arc<Self>, state: BlockStateId, pos: BlockPos) {
+        let block = state.get_block();
+        let loot_key = steel_utils::Identifier::vanilla(format!("blocks/{}", block.key.path));
+
+        let Some(loot_table) = REGISTRY.loot_tables.by_key(&loot_key) else {
+            return;
+        };
+
+        let mut rng = rand::rng();
+        let mut ctx = LootContext::new(&mut rng)
+            .with_block_state(state)
+            .with_origin(f64::from(pos.x()), f64::from(pos.y()), f64::from(pos.z()));
+
+        let drops = loot_table.get_random_items(&mut ctx);
+        for item in drops {
+            if !item.is_empty() {
+                self.pop_resource(&pos, item);
+            }
+        }
     }
 
     /// Broadcasts a block event to nearby players within 64 blocks.
@@ -1311,7 +1865,11 @@ impl World {
         pos: Vector3<f64>,
         item: ItemStack,
     ) -> Option<Arc<ItemEntity>> {
-        self.spawn_item_with_velocity(pos, item, Vector3::new(0.0, 0.0, 0.0))
+        // Default ItemEntity velocity: random horizontal scatter + upward pop
+        let vx = rand::random::<f64>() * 0.2 - 0.1;
+        let vy = 0.2;
+        let vz = rand::random::<f64>() * 0.2 - 0.1;
+        self.spawn_item_with_velocity(pos, item, Vector3::new(vx, vy, vz))
     }
 
     /// Spawns an item entity at the given position with initial velocity.
@@ -1356,6 +1914,11 @@ impl World {
         use steel_registry::vanilla_entities;
 
         if item.is_empty() {
+            return None;
+        }
+
+        // Respect doTileDrops gamerule
+        if !self.get_game_rule(BLOCK_DROPS).as_bool().unwrap_or(true) {
             return None;
         }
 

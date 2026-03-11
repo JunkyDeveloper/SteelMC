@@ -9,6 +9,7 @@ use steel_registry::blocks::shapes::AABBd;
 use steel_registry::entity_data::DataValue;
 use steel_registry::entity_types::EntityTypeRef;
 use steel_registry::item_stack::ItemStack;
+use steel_utils::locks::SyncMutex;
 use steel_utils::math::Vector3;
 use uuid::Uuid;
 
@@ -16,7 +17,7 @@ use crate::physics::{
     EntityPhysicsState, MoveResult, MoverType, WorldCollisionProvider, move_entity,
 };
 use crate::world::World;
-use crate::{inventory::equipment::EquipmentSlot, player::Player};
+use crate::{entity::damage::DamageSource, inventory::equipment::EquipmentSlot, player::Player};
 
 use entities::ItemEntity;
 
@@ -38,7 +39,9 @@ pub fn next_entity_id() -> i32 {
 mod base;
 mod cache;
 mod callback;
+pub mod damage;
 pub mod entities;
+mod living_base;
 mod registry;
 mod storage;
 mod tracker;
@@ -49,6 +52,7 @@ pub use callback::{
     EntityChunkCallback, EntityLevelCallback, NullEntityCallback, PlayerEntityCallback,
     RemovalReason,
 };
+pub use living_base::{DEATH_DURATION, LivingEntityBase};
 pub use registry::{ENTITIES, EntityRegistry, init_entities};
 pub use storage::EntityStorage;
 pub use tracker::EntityTracker;
@@ -367,24 +371,37 @@ pub trait Entity: Send + Sync {
             base.mark_ticked(server_tick);
         }
     }
+
+    /// Applies damage to this entity.
+    ///
+    /// Vanilla: `Entity.hurtServer()` — overridden by `LivingEntity` (complex
+    /// armor/effects/invulnerability logic) and `ItemEntity` (health decrement
+    /// and discard). Default returns `false` (entity ignores damage).
+    #[allow(unused_variables)]
+    fn hurt(&self, source: &DamageSource, amount: f32) -> bool {
+        false
+    }
 }
 
 /// A trait for living entities that can take damage, heal, and die.
 ///
 /// This trait provides the core functionality for entities that have health,
 /// can be damaged, and can die. It's based on Minecraft's `LivingEntity` class.
+///
+/// **Note:** All methods take `&self` (not `&mut self`) because living entities
+/// are shared via `Arc` and use interior mutability (atomics, `SyncMutex`, etc.).
 pub trait LivingEntity: Entity {
     /// Gets the current health of the entity.
     fn get_health(&self) -> f32;
 
     /// Sets the health of the entity, clamped between 0 and max health.
-    fn set_health(&mut self, health: f32);
+    fn set_health(&self, health: f32);
 
     /// Gets the maximum health of the entity.
     fn get_max_health(&self) -> f32;
 
     /// Heals the entity by the specified amount.
-    fn heal(&mut self, amount: f32) {
+    fn heal(&self, amount: f32) {
         let current_health = self.get_health();
         if current_health > 0.0 {
             self.set_health(current_health + amount);
@@ -401,14 +418,15 @@ pub trait LivingEntity: Entity {
         !self.is_dead_or_dying()
     }
 
-    /// Gets the entity's position.
-    fn get_position(&self) -> Vector3<f64>;
+    /// Returns a reference to the shared [`LivingEntityBase`] that holds
+    /// `dead`, `invulnerable_time`, and `last_hurt`.
+    fn living_base(&self) -> &SyncMutex<LivingEntityBase>;
 
     /// Gets the absorption amount (extra health from effects like absorption).
     fn get_absorption_amount(&self) -> f32;
 
     /// Sets the absorption amount.
-    fn set_absorption_amount(&mut self, amount: f32);
+    fn set_absorption_amount(&self, amount: f32);
 
     /// Gets the entity's armor value.
     fn get_armor_value(&self) -> i32;
@@ -444,7 +462,7 @@ pub trait LivingEntity: Entity {
     }
 
     /// Stops the entity from sleeping.
-    fn stop_sleeping(&mut self) {}
+    fn stop_sleeping(&self) {}
 
     /// Checks if the entity is sprinting.
     fn is_sprinting(&self) -> bool {
@@ -452,13 +470,13 @@ pub trait LivingEntity: Entity {
     }
 
     /// Sets whether the entity is sprinting.
-    fn set_sprinting(&mut self, sprinting: bool);
+    fn set_sprinting(&self, sprinting: bool);
 
     /// Gets the entity's speed attribute value.
     fn get_speed(&self) -> f32;
 
     /// Sets the entity's speed.
-    fn set_speed(&mut self, speed: f32);
+    fn set_speed(&self, speed: f32);
 
     // Equipment methods
 

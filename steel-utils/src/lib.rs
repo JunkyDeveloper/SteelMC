@@ -2,16 +2,14 @@
 //!
 //! This crate contains a collection of utilities used by the Steel Minecraft server.
 
-#![feature(
-    const_trait_impl,
-    const_slice_make_iter,
-    const_cmp,
-    derive_const,
-    core_intrinsics
-)]
+#![feature(const_trait_impl, const_cmp, derive_const)]
 #![allow(internal_features)]
 
+/// Climate system for biome selection.
+pub mod climate;
 pub mod codec;
+/// Density function system for world generation.
+pub mod density;
 /// Direction enum for the six cardinal directions.
 pub mod direction;
 mod front_vec;
@@ -22,7 +20,11 @@ pub mod locks;
 /// Utilities for Steel logging.
 pub mod logger;
 pub mod math;
+/// Noise generation utilities for world generation.
+pub mod noise;
 pub mod random;
+/// helpful tools for registry
+pub mod registry;
 pub mod serial;
 pub mod text;
 /// A module for common types.
@@ -38,13 +40,16 @@ pub mod translations;
 #[path = "generated/vanilla_translations/registry.rs"]
 #[allow(missing_docs, warnings)]
 pub mod translations_registry;
-/// helpful tools for registry
-pub mod registry;
+#[rustfmt::skip]
+#[path = "generated/entity_events.rs"]
+#[allow(missing_docs, warnings)]
+pub mod entity_events;
 
 pub use direction::Direction;
 pub use front_vec::FrontVec;
 pub use types::BlockPos;
 pub use types::BlockStateId;
+pub use types::BoundingBox;
 pub use types::ChunkPos;
 pub use types::Identifier;
 pub use types::SectionPos;
