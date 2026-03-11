@@ -30,6 +30,13 @@ jobs:
           repository: FlintTestMC/JunkysGenerator
           path: JunkysGenerator
 
+      - name: Clone FlintBenchmark
+        uses: actions/checkout@v4
+        with:
+          repository: JunkyDeveloper/FlintBenchmark
+          ref: walls
+          path: FlintBenchmark
+
       - name: Setup Rust nightly
         uses: dtolnay/rust-toolchain@nightly
 
@@ -79,6 +86,13 @@ jobs:
         timeout-minutes: 15
         env:
           TEST_PATH: ${{ github.workspace }}/JunkysGenerator
+        run: cargo test --profile cicd --lib test_run_all_flint_benchmarks -- --nocapture
+
+      - name: Run flint-steel tests
+        working-directory: flint-steel
+        timeout-minutes: 15
+        env:
+          TEST_PATH: ${{ github.workspace }}/FlintBenchmark/tests
         run: cargo test --profile cicd --lib test_run_all_flint_benchmarks -- --nocapture
 
       - name: Upload Flint summary
