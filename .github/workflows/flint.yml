@@ -60,6 +60,75 @@ jobs:
           TEST_PATH: ${{ github.workspace }}/FlintBenchmark/tests
         run: cargo test --profile cicd --lib test_run_all_flint_benchmarks -- --nocapture
 
+      - name: Download baseline
+        id: baseline
+        uses: dawidd6/action-download-artifact@v6
+        continue-on-error: true
+        with:
+          name: flint-baseline
+          branch: master
+          workflow: flint.yml
+          path: baseline
+
+      - name: Check for regressions
+        id: regression
+        run: |
+          SUMMARY="flint-steel/log/flint_summary.json"
+          BASELINE="baseline/flint_baseline.json"
+
+          if [ ! -f "$BASELINE" ]; then
+            echo "No baseline found — skipping regression check"
+            exit 0
+          fi
+
+          # Find tests that passed in baseline but fail now
+          REGRESSIONS=$(jq -n \
+            --slurpfile base "$BASELINE" \
+            --slurpfile curr "$SUMMARY" \
+            '[($base[0] | map(select(.success == true)) | map(.name)) as $required |
+              $curr[0][] |
+              select(.success == false and ([.name] | inside($required)))] |
+              map(.name)')
+
+          if [ "$REGRESSIONS" != "[]" ]; then
+            echo "::error::Regressions detected: $REGRESSIONS"
+            echo "$REGRESSIONS" | jq -r '.[]' | while read -r name; do
+              echo "  - $name"
+            done
+            exit 1
+          fi
+
+          echo "No regressions detected"
+
+      - name: Merge and upload baseline
+        if: github.ref == 'refs/heads/master' && steps.regression.outcome == 'success'
+        run: |
+          SUMMARY="flint-steel/log/flint_summary.json"
+          BASELINE="baseline/flint_baseline.json"
+          MERGED="flint_baseline.json"
+
+          if [ -f "$BASELINE" ]; then
+            # Merge: old baseline successes ∪ current successes
+            jq -n \
+              --slurpfile base "$BASELINE" \
+              --slurpfile curr "$SUMMARY" \
+              '($base[0] + $curr[0]) | group_by(.name) | map({
+                name: .[0].name,
+                ids: .[0].ids,
+                success: (map(.success) | any)
+              })' > "$MERGED"
+          else
+            # First run — current results become the baseline
+            cp "$SUMMARY" "$MERGED"
+          fi
+
+      - name: Upload baseline artifact
+        if: github.ref == 'refs/heads/master' && steps.regression.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: flint-baseline
+          path: flint_baseline.json
+
       - name: Upload Flint summary
         if: always()
         uses: actions/upload-artifact@v4
