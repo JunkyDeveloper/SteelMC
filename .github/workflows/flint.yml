@@ -6,6 +6,7 @@ on:
     tags: ['**']
   pull_request:
 
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -15,30 +16,49 @@ jobs:
     steps:
       - name: Checkout SteelMC
         uses: actions/checkout@v4
-
-      - name: Add flint-steel to workspace
-        run: sed -i 's/"steel-crypto",/"steel-crypto",\n    "flint-steel",/' Cargo.toml
+        with:
+          path: SteelMC
 
       - name: Checkout flint-steel
         uses: actions/checkout@v4
         with:
           repository: FlintTestMC/flint-steel
+          ref: main
           path: flint-steel
 
       - name: Clone FlintBenchmark
         uses: actions/checkout@v4
         with:
-          repository: FlintTestMC/FlintBenchmark
-          path: ${{ github.workspace }}/flint
+          repository: JunkyDeveloper/FlintBenchmark
+          path: FlintBenchmark
 
-      - name: Check the tests directory is not empty
-        working-directory: ${{ github.workspace }}/flint
-        run: find ./tests -type f -printf '.' | wc -c
+      - name: Setup Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            flint-steel -> target
+
+      - name: Configure SteelMC patch
+        working-directory: flint-steel
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml << 'EOF'
+          [patch."https://github.com/Steel-Foundation/SteelMC.git"]
+          steel-core     = { path = "../SteelMC/steel-core" }
+          steel-protocol = { path = "../SteelMC/steel-protocol" }
+          steel-registry = { path = "../SteelMC/steel-registry" }
+          steel-utils    = { path = "../SteelMC/steel-utils" }
+          EOF
+
       - name: Run flint-steel tests
+        working-directory: flint-steel
         timeout-minutes: 15
         env:
-          TEST_PATH: ${{ github.workspace }}/flint/tests
-        run: cargo test --release --lib -p flint-steel test_run_all_flint_benchmarks -- --nocapture
+          TEST_PATH: ${{ github.workspace }}/FlintBenchmark/tests
+        run: cargo test --profile cicd --lib test_run_all_flint_benchmarks -- --nocapture
 
       - name: Upload Flint summary
         if: always()
