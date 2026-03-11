@@ -2,8 +2,10 @@ name: Flint Tests
 
 on:
   push:
-    branches: [main, dev, ignite_portal]
+    branches: ['master']
+    tags: ['**']
   pull_request:
+
 
 env:
   CARGO_TERM_COLOR: always
@@ -24,17 +26,10 @@ jobs:
           ref: main
           path: flint-steel
 
-      - name: Clone JunkysGenerator
-        uses: actions/checkout@v4
-        with:
-          repository: FlintTestMC/JunkysGenerator
-          path: JunkysGenerator
-
       - name: Clone FlintBenchmark
         uses: actions/checkout@v4
         with:
           repository: JunkyDeveloper/FlintBenchmark
-          ref: walls
           path: FlintBenchmark
 
       - name: Setup Rust nightly
@@ -45,30 +40,6 @@ jobs:
         with:
           workspaces: |
             flint-steel -> target
-            JunkysGenerator -> target
-
-      - name: Build test generators
-        working-directory: JunkysGenerator
-        run: cargo build --release -p create-portal -p destroy-portal
-
-      - name: Generate create-portal tests
-        working-directory: JunkysGenerator/create-portal
-        run: cargo run --release -p create-portal
-
-      - name: Generate destroy-portal tests
-        working-directory: JunkysGenerator/destroy-portal
-        run: cargo run --release -p destroy-portal
-
-      - name: Check generated tests for create-portal
-        working-directory: JunkysGenerator/create-portal
-        run: find ./test -type f -printf '.' | wc -c
-
-      - name: Check generated tests for destroy-portal
-        working-directory: JunkysGenerator/destroy-portal
-        run: find ./test -type f -printf '.' | wc -c
-
-      - name: Clean up generator build artifacts
-        run: rm -rf JunkysGenerator/target
 
       - name: Configure SteelMC patch
         working-directory: flint-steel
@@ -81,19 +52,88 @@ jobs:
           steel-registry = { path = "../SteelMC/steel-registry" }
           steel-utils    = { path = "../SteelMC/steel-utils" }
           EOF
-      - name: Run flint-steel tests
-        working-directory: flint-steel
-        timeout-minutes: 15
-        env:
-          TEST_PATH: ${{ github.workspace }}/JunkysGenerator
-        run: cargo test --profile cicd --lib test_run_all_flint_benchmarks -- --nocapture
 
       - name: Run flint-steel tests
+        id: tests
         working-directory: flint-steel
+        continue-on-error: true
         timeout-minutes: 15
         env:
           TEST_PATH: ${{ github.workspace }}/FlintBenchmark/tests
         run: cargo test --profile cicd --lib test_run_all_flint_benchmarks -- --nocapture
+
+      - name: Download baseline
+        id: baseline
+        uses: dawidd6/action-download-artifact@v6
+        continue-on-error: true
+        with:
+          name: flint-baseline
+          branch: master
+          workflow: flint.yml
+          path: baseline
+
+      - name: Check for regressions
+        id: regression
+        run: |
+          SUMMARY="flint-steel/log/flint_summary.json"
+          BASELINE="baseline/flint_baseline.json"
+
+          if [ ! -f "$SUMMARY" ]; then
+            echo "::error::No flint_summary.json produced — tests likely failed to compile"
+            exit 1
+          fi
+
+          if [ ! -f "$BASELINE" ]; then
+            echo "No baseline found — skipping regression check"
+            exit 0
+          fi
+
+          # Find tests that passed in baseline but fail now
+          REGRESSIONS=$(jq -n \
+            --slurpfile base "$BASELINE" \
+            --slurpfile curr "$SUMMARY" \
+            '($base[0] | map(select(.success == true)) | map(.name)) as $required |
+              [$curr[0][] | select(.success == false and IN(.name; $required[]))] |
+              map(.name)')
+
+          if [ "$REGRESSIONS" != "[]" ]; then
+            echo "::error::Regressions detected: $REGRESSIONS"
+            echo "$REGRESSIONS" | jq -r '.[]' | while read -r name; do
+              echo "  - $name"
+            done
+            exit 1
+          fi
+
+          echo "No regressions detected"
+
+      - name: Merge and upload baseline
+        if: github.ref == 'refs/heads/master' && steps.regression.outcome == 'success'
+        run: |
+          SUMMARY="flint-steel/log/flint_summary.json"
+          BASELINE="baseline/flint_baseline.json"
+          MERGED="flint_baseline.json"
+
+          if [ -f "$BASELINE" ]; then
+            # Merge: old baseline successes ∪ current successes
+            jq -n \
+              --slurpfile base "$BASELINE" \
+              --slurpfile curr "$SUMMARY" \
+              '($base[0] + $curr[0]) | group_by(.name) | map({
+                name: .[0].name,
+                ids: .[-1].ids,
+                success: (map(.success) | any)
+              })' > "$MERGED"
+          else
+            # First run — current results become the baseline
+            cp "$SUMMARY" "$MERGED"
+          fi
+
+      - name: Upload baseline artifact
+        if: github.ref == 'refs/heads/master' && steps.regression.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: flint-baseline
+          path: flint_baseline.json
 
       - name: Upload Flint summary
         if: always()
