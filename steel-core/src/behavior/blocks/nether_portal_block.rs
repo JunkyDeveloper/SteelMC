@@ -5,9 +5,7 @@ use crate::behavior::context::BlockPlaceContext;
 use crate::world::World;
 use steel_registry::blocks::BlockRef;
 use steel_registry::blocks::block_state_ext::BlockStateExt;
-use steel_registry::blocks::properties::BlockStateProperties;
 use steel_registry::vanilla_blocks::AIR;
-use steel_utils::math::Axis;
 use steel_utils::{BlockPos, BlockStateId, Direction};
 
 /// Behavior for the nether portal block.
@@ -29,7 +27,7 @@ impl BlockBehaviour for NetherPortalBlock {
         state: BlockStateId,
         _world: &World,
         _pos: BlockPos,
-        direction: Direction,
+        _direction: Direction,
         _neighbor_pos: BlockPos,
         neighbor_state: BlockStateId,
     ) -> BlockStateId {
