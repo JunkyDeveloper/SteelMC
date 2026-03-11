@@ -40,23 +40,63 @@ pub struct PortalFrameConfig {
     pub portal: BlockRef,
 }
 
+/// Returns the standard nether portal frame configuration.
+pub fn nether_portal_config() -> PortalFrameConfig {
+    PortalFrameConfig {
+        min_width: 2,
+        max_width: 21,
+        min_height: 3,
+        max_height: 21,
+        frame: vanilla_blocks::OBSIDIAN,
+        portal: vanilla_blocks::NETHER_PORTAL,
+    }
+}
+
+/// Interior check: air or fire only (used when creating a new portal).
+fn is_empty_interior(world: &World, pos: BlockPos, _config: &PortalFrameConfig) -> bool {
+    let block = world.get_block_state(&pos).get_block();
+    block == vanilla_blocks::AIR || block == vanilla_blocks::FIRE
+}
+
+/// Interior check: air, fire, or existing portal blocks (used when validating an existing portal).
+fn is_portal_or_empty_interior(world: &World, pos: BlockPos, config: &PortalFrameConfig) -> bool {
+    let block = world.get_block_state(&pos).get_block();
+    block == vanilla_blocks::AIR || block == vanilla_blocks::FIRE || block == config.portal
+}
+
+/// Interior validator function signature.
+type InteriorCheck = fn(&World, BlockPos, &PortalFrameConfig) -> bool;
+
 impl PortalShape {
     /// Tries to find a valid portal shape from a position inside or adjacent to a frame.
     pub fn find_portal_shape(
         world: &World,
         fire_pos: BlockPos,
-        shape: &PortalFrameConfig,
+        config: &PortalFrameConfig,
     ) -> Option<Self> {
-        Self::try_axis(world, fire_pos, Axis::X, shape)
-            .or_else(|| Self::try_axis(world, fire_pos, Axis::Z, shape))
+        Self::try_axis(world, fire_pos, Axis::X, config, is_empty_interior)
+            .or_else(|| Self::try_axis(world, fire_pos, Axis::Z, config, is_empty_interior))
     }
-    /// Tries to find a valid portal
-    /// It doesn't loop over the obsidian, it loops over the air in the portal, to get the size of the portal
+
+    /// Finds a portal shape on a specific axis, treating existing portal blocks as valid interior.
+    /// Used by `update_shape` to check if the portal frame is still complete.
+    pub fn find_any_shape(
+        world: &World,
+        pos: BlockPos,
+        axis: Axis,
+        config: &PortalFrameConfig,
+    ) -> Option<Self> {
+        Self::try_axis(world, pos, axis, config, is_portal_or_empty_interior)
+    }
+
+    /// Tries to find a valid portal on a single axis.
+    /// It loops over the interior (not frame blocks) to determine the portal dimensions.
     fn try_axis(
         world: &World,
         pos: BlockPos,
         axis: Axis,
-        shape: &PortalFrameConfig,
+        config: &PortalFrameConfig,
+        interior_check: InteriorCheck,
     ) -> Option<Self> {
         // Width direction: portal axis=X means width along Z, axis=Z means width along X
         let dir: Direction = match axis {
@@ -67,30 +107,37 @@ impl PortalShape {
 
         // searches the bottom obsidian
         let mut cur = pos;
-        for _ in 0..=shape.max_height as i32 {
+        for _ in 0..=config.max_height as i32 {
             let next = BlockPos::new(cur.x(), cur.y() - 1, cur.z());
-            if Self::is_frame_block(world, next, shape) {
+            if Self::is_frame_block(world, next, config) {
                 break;
             }
             cur = next;
         }
 
         // searches for the left obsidian (-1) because we don't want to be at the obsidian block
-        let to_left = Self::get_width(world, cur, dir, shape);
+        let to_left = Self::get_width(world, cur, dir, config, interior_check);
         cur = cur.relative_n(dir, to_left as i32);
 
-        let width = Self::get_width(world, cur, dir.opposite(), shape) + 1;
-        if width < shape.min_width {
+        let width = Self::get_width(world, cur, dir.opposite(), config, interior_check) + 1;
+        if width < config.min_width {
             return None;
         }
-        let height = Self::get_height(world, cur, dir, shape);
-        if height < shape.min_height {
+        let height = Self::get_height(world, cur, dir, config, interior_check);
+        if height < config.min_height {
             return None;
         }
-        // Measure width (walk right from bottom_left)
 
         // Validate entire frame
-        if !Self::validate_frame(world, cur, width, height, dir.opposite(), shape) {
+        if !Self::validate_frame(
+            world,
+            cur,
+            width,
+            height,
+            dir.opposite(),
+            config,
+            interior_check,
+        ) {
             return None;
         }
 
@@ -99,7 +146,7 @@ impl PortalShape {
             bottom_left: cur,
             width,
             height,
-            portal: shape.portal,
+            portal: config.portal,
         })
     }
 
@@ -108,32 +155,35 @@ impl PortalShape {
         world: &World,
         pos: BlockPos,
         direction: Direction,
-        shape: &PortalFrameConfig,
+        config: &PortalFrameConfig,
+        interior_check: InteriorCheck,
     ) -> u32 {
-        for i in 1..shape.max_width {
+        for i in 1..config.max_width {
             let next = pos.relative_n(direction, i as i32);
-            if !Self::is_valid_interior(world, next) && Self::is_frame_block(world, next, shape) {
+            if !interior_check(world, next, config) && Self::is_frame_block(world, next, config) {
                 return i - 1;
             }
-            if !Self::is_frame_block(world, next.below(), shape) {
+            if !Self::is_frame_block(world, next.below(), config) {
                 return 0;
             }
         }
         0
     }
+
     fn get_height(
         world: &World,
         pos: BlockPos,
         direction: Direction,
-        shape: &PortalFrameConfig,
+        config: &PortalFrameConfig,
+        interior_check: InteriorCheck,
     ) -> u32 {
         let mut cur = pos;
-        for i in 1..shape.max_height {
+        for i in 1..config.max_height {
             let next = cur.above();
-            if !Self::is_valid_interior(world, next) && Self::is_frame_block(world, next, shape) {
+            if !interior_check(world, next, config) && Self::is_frame_block(world, next, config) {
                 return i;
             }
-            if !Self::is_frame_block(world, next.relative(direction), shape) {
+            if !Self::is_frame_block(world, next.relative(direction), config) {
                 return 0;
             }
             cur = next;
@@ -141,13 +191,8 @@ impl PortalShape {
         0
     }
 
-    fn is_frame_block(world: &World, pos: BlockPos, shape: &PortalFrameConfig) -> bool {
-        world.get_block_state(&pos).get_block() == shape.frame
-    }
-
-    fn is_valid_interior(world: &World, pos: BlockPos) -> bool {
-        let block = world.get_block_state(&pos).get_block();
-        block == vanilla_blocks::AIR || block == vanilla_blocks::FIRE
+    fn is_frame_block(world: &World, pos: BlockPos, config: &PortalFrameConfig) -> bool {
+        world.get_block_state(&pos).get_block() == config.frame
     }
 
     fn validate_frame(
@@ -156,12 +201,13 @@ impl PortalShape {
         width: u32,
         height: u32,
         direction: Direction,
-        shape: &PortalFrameConfig,
+        config: &PortalFrameConfig,
+        interior_check: InteriorCheck,
     ) -> bool {
         // Check top frame row
         let top_row = bottom_left.above_n(height as i32);
         for w in 0..width as i32 {
-            if !Self::is_frame_block(world, top_row.relative_n(direction, w), shape) {
+            if !Self::is_frame_block(world, top_row.relative_n(direction, w), config) {
                 return false;
             }
         }
@@ -170,13 +216,17 @@ impl PortalShape {
         for h in 0..height as i32 {
             // Right column
             let height_pos = bottom_left.above_n(h);
-            if !Self::is_frame_block(world, height_pos.relative_n(direction, width as i32), shape) {
+            if !Self::is_frame_block(
+                world,
+                height_pos.relative_n(direction, width as i32),
+                config,
+            ) {
                 return false;
             }
 
             // Interior blocks
             for w in 0..width as i32 {
-                if !Self::is_valid_interior(world, height_pos.relative_n(direction, w)) {
+                if !interior_check(world, height_pos.relative_n(direction, w), config) {
                     return false;
                 }
             }

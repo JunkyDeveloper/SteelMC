@@ -1,12 +1,11 @@
 //! fire block behavior implementation.
 
 use steel_registry::blocks::BlockRef;
-use steel_registry::vanilla_blocks::{NETHER_PORTAL, OBSIDIAN};
 use steel_utils::{BlockPos, BlockStateId};
 
 use crate::behavior::block::BlockBehaviour;
 use crate::behavior::context::BlockPlaceContext;
-use crate::portal::portal_shape::{PortalFrameConfig, PortalShape};
+use crate::portal::portal_shape::{PortalShape, nether_portal_config};
 use crate::world::World;
 
 /// Behavior for fire blocks.
@@ -37,18 +36,7 @@ impl BlockBehaviour for FireBlock {
         _old_state: BlockStateId,
         _moved_by_piston: bool,
     ) {
-        if let Some(tester) = PortalShape::find_portal_shape(
-            world,
-            pos,
-            &PortalFrameConfig {
-                min_width: 2,
-                max_width: 21,
-                min_height: 3,
-                max_height: 21,
-                frame: OBSIDIAN,
-                portal: NETHER_PORTAL,
-            },
-        ) {
+        if let Some(tester) = PortalShape::find_portal_shape(world, pos, &nether_portal_config()) {
             tester.place_portal_blocks(world);
             // TODO: Play ignite sound, damage item
         }
