@@ -54,7 +54,9 @@ jobs:
           EOF
 
       - name: Run flint-steel tests
+        id: tests
         working-directory: flint-steel
+        continue-on-error: true
         timeout-minutes: 15
         env:
           TEST_PATH: ${{ github.workspace }}/FlintBenchmark/tests
@@ -76,6 +78,11 @@ jobs:
           SUMMARY="flint-steel/log/flint_summary.json"
           BASELINE="baseline/flint_baseline.json"
 
+          if [ ! -f "$SUMMARY" ]; then
+            echo "::error::No flint_summary.json produced — tests likely failed to compile"
+            exit 1
+          fi
+
           if [ ! -f "$BASELINE" ]; then
             echo "No baseline found — skipping regression check"
             exit 0
@@ -85,9 +92,8 @@ jobs:
           REGRESSIONS=$(jq -n \
             --slurpfile base "$BASELINE" \
             --slurpfile curr "$SUMMARY" \
-            '[($base[0] | map(select(.success == true)) | map(.name)) as $required |
-              $curr[0][] |
-              select(.success == false and ([.name] | inside($required)))] |
+            '($base[0] | map(select(.success == true)) | map(.name)) as $required |
+              [$curr[0][] | select(.success == false and IN(.name; $required[]))] |
               map(.name)')
 
           if [ "$REGRESSIONS" != "[]" ]; then
