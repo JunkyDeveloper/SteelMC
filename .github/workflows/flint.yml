@@ -120,7 +120,7 @@ jobs:
               --slurpfile curr "$SUMMARY" \
               '($base[0] + $curr[0]) | group_by(.name) | map({
                 name: .[0].name,
-                ids: .[0].ids,
+                ids: .[-1].ids,
                 success: (map(.success) | any)
               })' > "$MERGED"
           else
