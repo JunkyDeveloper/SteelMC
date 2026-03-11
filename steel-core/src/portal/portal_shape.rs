@@ -1,7 +1,5 @@
 //! Portal shape detection for validating obsidian frames.
 
-use std::ptr;
-
 use steel_registry::blocks::BlockRef;
 use steel_registry::blocks::block_state_ext::BlockStateExt;
 use steel_registry::blocks::properties::BlockStateProperties;
@@ -144,12 +142,12 @@ impl PortalShape {
     }
 
     fn is_frame_block(world: &World, pos: BlockPos, shape: &PortalFrameConfig) -> bool {
-        ptr::eq(world.get_block_state(&pos).get_block(), shape.frame)
+        world.get_block_state(&pos).get_block() == shape.frame
     }
 
     fn is_valid_interior(world: &World, pos: BlockPos) -> bool {
         let block = world.get_block_state(&pos).get_block();
-        ptr::eq(block, vanilla_blocks::AIR) || ptr::eq(block, vanilla_blocks::FIRE)
+        block == vanilla_blocks::AIR || block == vanilla_blocks::FIRE
     }
 
     fn validate_frame(
