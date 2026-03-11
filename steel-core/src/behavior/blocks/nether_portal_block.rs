@@ -34,9 +34,9 @@ impl BlockBehaviour for NetherPortalBlock {
         neighbor_state: BlockStateId,
     ) -> BlockStateId {
         if neighbor_state.is_air()
-            && (state.get_value(&BlockStateProperties::AXIS) == direction.axis()
-                || direction.axis() == Axis::Y)
-            && neighbor_state.0 != state.0
+        //&& (state.get_value(&BlockStateProperties::AXIS) == direction.axis()
+        //    || direction.axis() == Axis::Y)
+        //&& neighbor_state.0 != state.0
         {
             return AIR.default_state();
         }
