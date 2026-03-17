@@ -1,7 +1,7 @@
 //! Item behavior trait and registry.
 
-use steel_registry::REGISTRY;
 use steel_registry::items::ItemRef;
+use steel_registry::{REGISTRY, RegistryEntry, RegistryExt};
 
 use crate::behavior::items::DefaultItemBehavior;
 use crate::behavior::{InteractionResult, UseItemContext, UseOnContext};
@@ -13,6 +13,13 @@ use crate::behavior::{InteractionResult, UseItemContext, UseOnContext};
 /// - Use in air
 /// - etc.
 pub trait ItemBehavior: Send + Sync {
+    /// Returns the Rust type name of the concrete behavior implementation.
+    #[cfg(feature = "flint")]
+    #[must_use]
+    fn type_name(&self) -> &'static str {
+        std::any::type_name::<Self>()
+    }
+
     /// Called when this item is used on a block.
     fn use_on(&self, _context: &mut UseOnContext) -> InteractionResult {
         InteractionResult::Pass
@@ -48,14 +55,14 @@ impl ItemBehaviorRegistry {
 
     /// Sets a custom behavior for an item.
     pub fn set_behavior(&mut self, item: ItemRef, behavior: Box<dyn ItemBehavior>) {
-        let id = *REGISTRY.items.get_id(item);
+        let id = item.id();
         self.behaviors[id] = behavior;
     }
 
     /// Gets the behavior for an item.
     #[must_use]
     pub fn get_behavior(&self, item: ItemRef) -> &dyn ItemBehavior {
-        let id = *REGISTRY.items.get_id(item);
+        let id = item.id();
         self.behaviors[id].as_ref()
     }
 
@@ -63,6 +70,13 @@ impl ItemBehaviorRegistry {
     #[must_use]
     pub fn get_behavior_by_id(&self, id: usize) -> Option<&dyn ItemBehavior> {
         self.behaviors.get(id).map(AsRef::as_ref)
+    }
+
+    /// Get all behaviors.
+    #[cfg(feature = "flint")]
+    #[must_use]
+    pub fn get_behaviors(&self) -> &[Box<dyn ItemBehavior>] {
+        &self.behaviors
     }
 }
 
