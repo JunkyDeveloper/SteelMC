@@ -33,6 +33,13 @@ pub struct PickupResult {
 /// - Player interactions
 /// - State changes
 pub trait BlockBehavior: Send + Sync {
+    /// Returns the Rust type name of the concrete behavior implementation.
+    #[cfg(feature = "flint")]
+    #[must_use]
+    fn type_name(&self) -> &'static str {
+        std::any::type_name::<Self>()
+    }
+
     /// Called when a player uses an empty bucket on this block.
     ///
     /// Should:
@@ -450,6 +457,13 @@ impl BlockBehaviorRegistry {
     pub fn get_behavior(&self, block: BlockRef) -> &dyn BlockBehavior {
         let id = block.id();
         self.behaviors[id].as_ref()
+    }
+
+    /// Get all behaviors.
+    #[cfg(feature = "flint")]
+    #[must_use]
+    pub fn get_behaviors(&self) -> &[Box<dyn BlockBehavior>] {
+        &self.behaviors
     }
 
     /// Gets the behavior for a block by its ID.
