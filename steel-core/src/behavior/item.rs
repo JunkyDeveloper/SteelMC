@@ -1,6 +1,5 @@
 //! Item behavior trait and registry.
 
-use std::any::type_name;
 use steel_registry::items::ItemRef;
 use steel_registry::{REGISTRY, RegistryEntry, RegistryExt};
 
@@ -17,8 +16,9 @@ pub trait ItemBehavior: Send + Sync {
     /// Returns the Rust type name of the concrete behavior implementation.
     #[cfg(feature = "flint")]
     #[must_use]
+    #[allow(clippy::absolute_paths)]
     fn type_name(&self) -> &'static str {
-        type_name::<Self>()
+        std::any::type_name::<Self>()
     }
 
     /// Called when this item is used on a block.

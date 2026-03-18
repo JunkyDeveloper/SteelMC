@@ -1,6 +1,5 @@
 //! Block behavior trait and registry.
 
-use std::any::type_name;
 use std::sync::{Arc, Weak};
 
 use steel_registry::blocks::BlockRef;
@@ -37,8 +36,9 @@ pub trait BlockBehavior: Send + Sync {
     /// Returns the Rust type name of the concrete behavior implementation.
     #[cfg(feature = "flint")]
     #[must_use]
+    #[allow(clippy::absolute_paths)]
     fn type_name(&self) -> &'static str {
-        type_name::<Self>()
+        std::any::type_name::<Self>()
     }
 
     /// Called when a player uses an empty bucket on this block.
