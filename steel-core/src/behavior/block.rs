@@ -1,5 +1,6 @@
 //! Block behavior trait and registry.
 
+use std::any::type_name;
 use std::sync::{Arc, Weak};
 
 use steel_registry::blocks::BlockRef;
@@ -37,7 +38,7 @@ pub trait BlockBehavior: Send + Sync {
     #[cfg(feature = "flint")]
     #[must_use]
     fn type_name(&self) -> &'static str {
-        std::any::type_name::<Self>()
+        type_name::<Self>()
     }
 
     /// Called when a player uses an empty bucket on this block.
