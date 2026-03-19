@@ -42,6 +42,7 @@ rayon.workspace = true
 scc.workspace = true
 
 # Data structures
+glam.workspace = true
 rustc-hash.workspace = true
 smallvec.workspace = true
 small-map.workspace = true
