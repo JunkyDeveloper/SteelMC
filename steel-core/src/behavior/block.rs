@@ -36,7 +36,7 @@ pub trait BlockBehavior: Send + Sync {
     /// Returns the Rust type name of the concrete behavior implementation.
     #[cfg(feature = "flint")]
     #[must_use]
-    #[expect(clippy::absolute_paths)]
+    #[expect(clippy::absolute_paths, reason = "easier for features")]
     fn type_name(&self) -> &'static str {
         std::any::type_name::<Self>()
     }
