@@ -16,7 +16,7 @@ pub trait ItemBehavior: Send + Sync {
     /// Returns the Rust type name of the concrete behavior implementation.
     #[cfg(feature = "flint")]
     #[must_use]
-    #[allow(clippy::absolute_paths)]
+    #[expect(clippy::absolute_paths)]
     fn type_name(&self) -> &'static str {
         std::any::type_name::<Self>()
     }
