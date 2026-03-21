@@ -53,6 +53,20 @@ jobs:
           steel-utils    = { path = "../SteelMC/steel-utils" }
           EOF
 
+      - name: Configure Flint via toml
+        working-directory: flint-steel
+        run: |
+          cat > flint.toml << 'EOF'
+          [filter]
+          implemented_only = true
+
+          # [filter.tags]
+          # redstone = true
+          # walls = false
+          # fence = true
+
+          EOF
+
       - name: Run flint-steel tests
         id: tests
         working-directory: flint-steel
