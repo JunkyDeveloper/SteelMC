@@ -48,7 +48,10 @@ pub trait BlockBehavior: Send + Sync {
     /// - Return the filled bucket item to give
     ///
     /// Return None if pickup failed.
-    #[allow(unused_variables)]
+    #[expect(
+        unused_variables,
+        reason = "default trait implementation ignores all params"
+    )]
     fn pickup_block(
         &self,
         world: &Arc<World>,
@@ -80,7 +83,10 @@ pub trait BlockBehavior: Send + Sync {
     /// blocks), and when removing water from waterlogged blocks. The default
     /// returns `true`; override for blocks that require physical support
     /// (torches, buttons, candles, cactus, etc.).
-    #[allow(unused_variables)]
+    #[expect(
+        unused_variables,
+        reason = "default trait implementation ignores all params"
+    )]
     fn can_survive(&self, state: BlockStateId, world: &Arc<World>, pos: BlockPos) -> bool {
         true
     }
@@ -96,7 +102,10 @@ pub trait BlockBehavior: Send + Sync {
     /// * `pos` - The position where the block was placed
     /// * `old_state` - The previous block state at this position
     /// * `moved_by_piston` - Whether the block was moved by a piston
-    #[allow(unused_variables)]
+    #[expect(
+        unused_variables,
+        reason = "default trait implementation ignores all params"
+    )]
     fn on_place(
         &self,
         state: BlockStateId,
@@ -117,7 +126,10 @@ pub trait BlockBehavior: Send + Sync {
     /// * `world` - The world the block was removed from
     /// * `pos` - The position where the block was removed
     /// * `moved_by_piston` - Whether the block was moved by a piston
-    #[allow(unused_variables)]
+    #[expect(
+        unused_variables,
+        reason = "default trait implementation ignores all params"
+    )]
     fn affect_neighbors_after_removal(
         &self,
         state: BlockStateId,
@@ -133,7 +145,11 @@ pub trait BlockBehavior: Send + Sync {
     /// Returns `TryEmptyHandInteraction` by default to fall through to item use.
     /// Override this to handle block-specific interactions (e.g., opening chests,
     /// using buttons, etc.).
-    #[allow(unused_variables, clippy::too_many_arguments)]
+    #[expect(
+        unused_variables,
+        clippy::too_many_arguments,
+        reason = "default trait implementation ignores all params; argument count matches vanilla signature"
+    )]
     fn use_item_on(
         &self,
         item_stack: &ItemStack,
@@ -152,7 +168,10 @@ pub trait BlockBehavior: Send + Sync {
     ///
     /// Returns `Pass` by default. Override this for blocks that have interactions
     /// without needing an item (e.g., buttons, levers, repeaters).
-    #[allow(unused_variables)]
+    #[expect(
+        unused_variables,
+        reason = "default trait implementation ignores all params"
+    )]
     fn use_without_item(
         &self,
         state: BlockStateId,
@@ -175,7 +194,10 @@ pub trait BlockBehavior: Send + Sync {
     /// * `pos` - Position of this block
     /// * `source_block` - The block type that changed
     /// * `moved_by_piston` - Whether the change was caused by a piston
-    #[allow(unused_variables)]
+    #[expect(
+        unused_variables,
+        reason = "default trait implementation ignores all params"
+    )]
     fn handle_neighbor_changed(
         &self,
         state: BlockStateId,
@@ -198,7 +220,10 @@ pub trait BlockBehavior: Send + Sync {
     /// * `block` - The block being picked
     /// * `_state` - The block state (some blocks vary pick item based on state)
     /// * `_include_data` - Whether to include block entity data (creative + Ctrl)
-    #[allow(unused_variables)]
+    #[expect(
+        unused_variables,
+        reason = "default implementation only uses `block`; state/include_data are for overrides"
+    )]
     fn get_clone_item_stack(
         &self,
         block: BlockRef,
@@ -214,7 +239,10 @@ pub trait BlockBehavior: Send + Sync {
     /// Override to return true for blocks like crops, grass, ice, fire, etc.
     /// This is used to optimize chunk ticking by skipping sections with no
     /// randomly-ticking blocks.
-    #[allow(unused_variables)]
+    #[expect(
+        unused_variables,
+        reason = "default trait implementation ignores all params"
+    )]
     fn is_randomly_ticking(&self, state: BlockStateId) -> bool {
         false
     }
@@ -228,7 +256,10 @@ pub trait BlockBehavior: Send + Sync {
     /// * `state` - The current block state
     /// * `world` - The world the block is in
     /// * `pos` - The position of the block
-    #[allow(unused_variables)]
+    #[expect(
+        unused_variables,
+        reason = "default trait implementation ignores all params"
+    )]
     fn random_tick(&self, state: BlockStateId, world: &Arc<World>, pos: BlockPos) {
         // Default: no-op
     }
@@ -243,7 +274,10 @@ pub trait BlockBehavior: Send + Sync {
     /// * `state` - The current block state
     /// * `world` - The world the block is in
     /// * `pos` - The position of the block
-    #[allow(unused_variables)]
+    #[expect(
+        unused_variables,
+        reason = "default trait implementation ignores all params"
+    )]
     fn tick(&self, state: BlockStateId, world: &Arc<World>, pos: BlockPos) {
         // Default: no-op
     }
@@ -257,7 +291,10 @@ pub trait BlockBehavior: Send + Sync {
     /// * `world` - The world
     /// * `pos` - The position of the block
     /// * `entity` - The entity inside the block
-    #[allow(unused_variables)]
+    #[expect(
+        unused_variables,
+        reason = "default trait implementation ignores all params"
+    )]
     fn entity_inside(
         &self,
         state: BlockStateId,
@@ -285,7 +322,10 @@ pub trait BlockBehavior: Send + Sync {
     /// * `level` - Weak reference to the world
     /// * `pos` - The position where the block entity will be placed
     /// * `state` - The block state for this block entity
-    #[allow(unused_variables)]
+    #[expect(
+        unused_variables,
+        reason = "default trait implementation ignores all params"
+    )]
     fn new_block_entity(
         &self,
         level: Weak<World>,
@@ -303,7 +343,10 @@ pub trait BlockBehavior: Send + Sync {
     /// # Arguments
     /// * `old_state` - The previous block state
     /// * `new_state` - The new block state
-    #[allow(unused_variables)]
+    #[expect(
+        unused_variables,
+        reason = "default trait implementation ignores all params"
+    )]
     fn should_keep_block_entity(&self, old_state: BlockStateId, new_state: BlockStateId) -> bool {
         false
     }
@@ -314,7 +357,10 @@ pub trait BlockBehavior: Send + Sync {
     ///
     /// Override to return `true` for containers (chests, barrels, hoppers, etc.)
     /// and other blocks that comparators can read (composters, beehives, etc.).
-    #[allow(unused_variables)]
+    #[expect(
+        unused_variables,
+        reason = "default trait implementation ignores all params"
+    )]
     fn has_analog_output_signal(&self, state: BlockStateId) -> bool {
         false
     }
@@ -328,7 +374,10 @@ pub trait BlockBehavior: Send + Sync {
     /// * `state` - The current block state
     /// * `world` - The world
     /// * `pos` - The position of the block
-    #[allow(unused_variables)]
+    #[expect(
+        unused_variables,
+        reason = "default trait implementation ignores all params"
+    )]
     fn get_analog_output_signal(
         &self,
         state: BlockStateId,
@@ -346,7 +395,6 @@ pub trait BlockBehavior: Send + Sync {
     /// otherwise `FluidState::EMPTY`.
     ///
     /// Override for liquid blocks (water/lava) to return the appropriate fluid based on LEVEL.
-    #[allow(unused_variables)]
     fn get_fluid_state(&self, state: BlockStateId) -> FluidState {
         if let Some(true) = state.try_get_value(&BlockStateProperties::WATERLOGGED) {
             FluidState::source(&vanilla_fluids::WATER)
@@ -367,7 +415,6 @@ pub trait BlockBehavior: Send + Sync {
     ///
     /// Vanilla signature: `canPlaceLiquid(@Nullable LivingEntity, BlockGetter, BlockPos, BlockState, Fluid)`
     /// — the Fluid parameter is a type, not a state.
-    #[allow(unused_variables)]
     fn can_place_liquid(&self, state: BlockStateId, fluid: FluidRef) -> bool {
         match state.try_get_value(&BlockStateProperties::WATERLOGGED) {
             Some(false) => is_water_fluid(fluid),
@@ -384,7 +431,6 @@ pub trait BlockBehavior: Send + Sync {
     /// a fluid tick.  Delegates the guard to [`can_place_liquid`].
     ///
     /// [`can_place_liquid`]: BlockBehavior::can_place_liquid
-    #[allow(unused_variables)]
     fn place_liquid(
         &self,
         world: &Arc<World>,
