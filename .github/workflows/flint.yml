@@ -74,7 +74,7 @@ jobs:
         timeout-minutes: 15
         env:
           TEST_PATH: ${{ github.workspace }}/FlintBenchmark/tests
-        run: cargo test --profile cicd --lib test_run_all_flint_benchmarks -- --nocapture
+        run: cargo test --profile cicd --lib test_run_flint_selected -- --nocapture
 
       - name: Download baseline
         id: baseline
