@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: FlintTestMC/flint-steel
-          ref: main
+          ref: v1.0
           path: flint-steel
 
       - name: Clone FlintBenchmark
@@ -40,6 +40,9 @@ jobs:
         with:
           workspaces: |
             flint-steel -> target
+          shared-key: "flint-steel"
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/master' || github.event_name == 'pull_request' }}
 
       - name: Configure SteelMC patch for Flint
         working-directory: flint-steel
@@ -47,7 +50,7 @@ jobs:
           mkdir -p .cargo
           cat > .cargo/config.toml << 'EOF'
           [patch."https://github.com/Steel-Foundation/SteelMC.git"]
-          steel-core     = { path = "../SteelMC/steel-core" }
+          steel-core     = { path = "../SteelMC/steel-core", features = ["flint"] }
           steel-protocol = { path = "../SteelMC/steel-protocol" }
           steel-registry = { path = "../SteelMC/steel-registry" }
           steel-utils    = { path = "../SteelMC/steel-utils" }
