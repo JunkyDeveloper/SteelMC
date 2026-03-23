@@ -41,7 +41,7 @@ jobs:
           workspaces: |
             flint-steel -> target
 
-      - name: Configure SteelMC patch
+      - name: Configure SteelMC patch for Flint
         working-directory: flint-steel
         run: |
           mkdir -p .cargo
