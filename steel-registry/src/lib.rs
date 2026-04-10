@@ -2,6 +2,7 @@
 
 use crate::world_clock::WorldClockRegistry;
 use crate::{
+    attribute::AttributeRegistry,
     banner_pattern::BannerPatternRegistry,
     biome::BiomeRegistry,
     block_entity_type::BlockEntityTypeRegistry,
@@ -43,6 +44,7 @@ use crate::{
 use std::{fmt::Debug, ops::Deref, sync::OnceLock};
 use steel_utils::Identifier;
 
+pub mod attribute;
 pub mod banner_pattern;
 pub mod biome;
 pub mod block_entity_type;
@@ -82,6 +84,11 @@ pub mod wolf_sound_variant;
 pub mod wolf_variant;
 pub mod world_clock;
 pub mod zombie_nautilus_variant;
+
+#[expect(warnings)]
+#[rustfmt::skip]
+#[path = "generated/vanilla_attributes.rs"]
+pub mod vanilla_attributes;
 
 #[expect(warnings)]
 #[rustfmt::skip]
@@ -481,6 +488,42 @@ macro_rules! impl_registry_entry {
     };
 }
 
+/// Implements the default register, replace, and iter methods in the registries
+#[macro_export]
+macro_rules! impl_standard_methods {
+    ($Registry:ty, $Entry:ty, $id_field:ident, $key_field:ident, $allow_registering:ident) => {
+        impl $Registry {
+            pub fn register(&mut self, entry: $Entry) -> usize {
+                assert!(
+                    self.$allow_registering,
+                    concat!(
+                        "Cannot register ",
+                        stringify!($Entry),
+                        " after registry has been frozen"
+                    )
+                );
+                let id = self.$id_field.len();
+                self.$id_field.push(entry);
+                self.$key_field.insert(entry.key.clone(), id);
+                id
+            }
+
+            pub fn iter(&self) -> impl Iterator<Item = (usize, $Entry)> + '_ {
+                self.$id_field
+                    .iter()
+                    .enumerate()
+                    .map(|(id, &entry)| (id, entry))
+            }
+        }
+
+        impl Default for $Registry {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+    };
+}
+
 /// Implements both `RegistryExt` and `RegistryEntry` for a standard registry.
 #[macro_export]
 macro_rules! impl_registry {
@@ -617,6 +660,7 @@ pub const POI_TYPE_REGISTRY: Identifier = Identifier::vanilla_static("point_of_i
 pub const WORLD_CLOCK_REGISTRY: Identifier = Identifier::vanilla_static("world_clock");
 
 pub struct Registry {
+    pub attributes: AttributeRegistry,
     pub blocks: BlockRegistry,
     pub items: ItemRegistry,
     pub data_components: DataComponentRegistry,
@@ -669,6 +713,8 @@ impl Registry {
     #[must_use]
     pub fn new_vanilla() -> Self {
         let mut registry = Self::new_empty();
+
+        vanilla_attributes::register_attributes(&mut registry.attributes);
 
         vanilla_blocks::register_blocks(&mut registry.blocks);
         vanilla_block_tags::register_block_tags(&mut registry.blocks);
@@ -741,6 +787,7 @@ impl Registry {
     }
 
     pub fn freeze(&mut self) {
+        self.attributes.freeze();
         self.blocks.freeze();
         self.data_components.freeze();
         self.entity_data_serializers.freeze();
@@ -784,6 +831,7 @@ impl Registry {
     #[must_use]
     pub fn new_empty() -> Self {
         Self {
+            attributes: AttributeRegistry::new(),
             blocks: BlockRegistry::new(),
             data_components: DataComponentRegistry::new(),
             entity_data_serializers: EntityDataSerializerRegistry::new(),

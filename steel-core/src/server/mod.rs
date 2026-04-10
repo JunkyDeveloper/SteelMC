@@ -32,7 +32,8 @@ use std::{
 use steel_crypto::key_store::KeyStore;
 use steel_protocol::packet_traits::EncodedPacket;
 use steel_protocol::packets::game::{
-    CEntityEvent, CLogin, CSystemChat, CTabList, CTickingState, CTickingStep, CommonPlayerSpawnInfo,
+    CEntityEvent, CGameEvent, CLogin, CSetHeldSlot, CSystemChat, CTabList, CTickingState,
+    CTickingStep, CommonPlayerSpawnInfo, GameEventType,
 };
 use steel_registry::dimension_type::DimensionTypeRef;
 use steel_registry::game_rules::GameRuleValue;
@@ -124,9 +125,9 @@ impl Server {
 
         let overworld = World::new_with_config(
             chunk_runtime.clone(),
-            OVERWORLD,
+            &OVERWORLD,
             seed,
-            Self::make_world_config(OVERWORLD, seed),
+            Self::make_world_config(&OVERWORLD, seed),
             generation_pool.clone(),
         )
         .await
@@ -134,9 +135,9 @@ impl Server {
 
         let nether = World::new_with_config(
             chunk_runtime.clone(),
-            THE_NETHER,
+            &THE_NETHER,
             seed,
-            Self::make_world_config(THE_NETHER, seed),
+            Self::make_world_config(&THE_NETHER, seed),
             generation_pool.clone(),
         )
         .await
@@ -144,9 +145,9 @@ impl Server {
 
         let end = World::new_with_config(
             chunk_runtime.clone(),
-            THE_END,
+            &THE_END,
             seed,
-            Self::make_world_config(THE_END, seed),
+            Self::make_world_config(&THE_END, seed),
             generation_pool,
         )
         .await
@@ -204,10 +205,11 @@ impl Server {
 
         // Get gamerule values
         let reduced_debug_info =
-            world.get_game_rule(REDUCED_DEBUG_INFO) == GameRuleValue::Bool(true);
-        let immediate_respawn = world.get_game_rule(IMMEDIATE_RESPAWN) == GameRuleValue::Bool(true);
+            world.get_game_rule(&REDUCED_DEBUG_INFO) == GameRuleValue::Bool(true);
+        let immediate_respawn =
+            world.get_game_rule(&IMMEDIATE_RESPAWN) == GameRuleValue::Bool(true);
         let do_limited_crafting =
-            world.get_game_rule(LIMITED_CRAFTING) == GameRuleValue::Bool(true);
+            world.get_game_rule(&LIMITED_CRAFTING) == GameRuleValue::Bool(true);
 
         // Get world data
         let hashed_seed = world.obfuscated_seed();
@@ -242,6 +244,40 @@ impl Server {
             },
             enforces_secure_chat: STEEL_CONFIG.enforce_secure_chat,
         });
+
+        // Send player abilities (flight, invulnerability, etc.)
+        player.send_abilities();
+
+        // Send current world difficulty to the client
+        player.send_difficulty();
+
+        player.send_packet(CSetHeldSlot {
+            slot: i32::from(player.inventory.lock().get_selected_slot()),
+        });
+
+        if world.can_have_weather() {
+            let (rain_level, thunder_level) = {
+                let weather = world.weather.lock();
+                (weather.rain_level, weather.thunder_level)
+            };
+
+            if world.is_raining() {
+                player.send_packet(CGameEvent {
+                    event: GameEventType::StartRaining,
+                    data: 0.0,
+                });
+            }
+
+            player.send_packet(CGameEvent {
+                event: GameEventType::RainLevelChange,
+                data: rain_level,
+            });
+
+            player.send_packet(CGameEvent {
+                event: GameEventType::ThunderLevelChange,
+                data: thunder_level,
+            });
+        }
 
         let commands = self.command_dispatcher.read().get_commands();
         player.send_packet(commands);
@@ -715,10 +751,10 @@ impl Server {
             WorldGeneratorTypes::Empty => ChunkGeneratorType::Empty(EmptyChunkGenerator::new()),
             WorldGeneratorTypes::Vanilla => {
                 let seed_u64 = seed as u64;
-                if dimension == OVERWORLD {
+                if dimension == &OVERWORLD {
                     let source = BiomeSourceKind::overworld(seed_u64);
                     ChunkGeneratorType::Overworld(VanillaGenerator::new(source, seed_u64))
-                } else if dimension == THE_NETHER {
+                } else if dimension == &THE_NETHER {
                     let source = BiomeSourceKind::nether(seed_u64);
                     ChunkGeneratorType::Nether(VanillaGenerator::new(source, seed_u64))
                 } else {
@@ -727,39 +763,39 @@ impl Server {
                 }
             }
             WorldGeneratorTypes::Flat => {
-                if dimension == THE_NETHER {
+                if dimension == &THE_NETHER {
                     ChunkGeneratorType::Flat(FlatChunkGenerator::new(
                         REGISTRY
                             .blocks
-                            .get_default_state_id(vanilla_blocks::BEDROCK),
+                            .get_default_state_id(&vanilla_blocks::BEDROCK),
                         REGISTRY
                             .blocks
-                            .get_default_state_id(vanilla_blocks::NETHER_BRICKS),
+                            .get_default_state_id(&vanilla_blocks::NETHER_BRICKS),
                         REGISTRY
                             .blocks
-                            .get_default_state_id(vanilla_blocks::NETHERRACK),
+                            .get_default_state_id(&vanilla_blocks::NETHERRACK),
                     ))
-                } else if dimension == THE_END {
+                } else if dimension == &THE_END {
                     ChunkGeneratorType::Flat(FlatChunkGenerator::new(
                         REGISTRY
                             .blocks
-                            .get_default_state_id(vanilla_blocks::BEDROCK),
+                            .get_default_state_id(&vanilla_blocks::BEDROCK),
                         REGISTRY
                             .blocks
-                            .get_default_state_id(vanilla_blocks::END_STONE),
+                            .get_default_state_id(&vanilla_blocks::END_STONE),
                         REGISTRY
                             .blocks
-                            .get_default_state_id(vanilla_blocks::END_STONE),
+                            .get_default_state_id(&vanilla_blocks::END_STONE),
                     ))
                 } else {
                     ChunkGeneratorType::Flat(FlatChunkGenerator::new(
                         REGISTRY
                             .blocks
-                            .get_default_state_id(vanilla_blocks::BEDROCK),
-                        REGISTRY.blocks.get_default_state_id(vanilla_blocks::DIRT),
+                            .get_default_state_id(&vanilla_blocks::BEDROCK),
+                        REGISTRY.blocks.get_default_state_id(&vanilla_blocks::DIRT),
                         REGISTRY
                             .blocks
-                            .get_default_state_id(vanilla_blocks::GRASS_BLOCK),
+                            .get_default_state_id(&vanilla_blocks::GRASS_BLOCK),
                     ))
                 }
             }

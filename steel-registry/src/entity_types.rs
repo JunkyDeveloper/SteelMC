@@ -91,6 +91,10 @@ pub struct EntityType {
 
     /// Behavioral flags for collision and interaction.
     pub flags: EntityFlags,
+
+    /// Default attribute base values for this entity type
+    /// Empty for entities that don't have attributes (projectiles, items, displays, etc.)
+    pub default_attributes: &'static [(&'static str, f64)],
 }
 
 pub type EntityTypeRef = &'static EntityType;
@@ -136,17 +140,6 @@ impl EntityTypeRegistry {
         let idx = self.types_by_id.len();
         self.types_by_key.insert(entity_type.key.clone(), idx);
         self.types_by_id.push(entity_type);
-    }
-
-    /// Replaces a entity_type at a given index.
-    /// Returns true if the entity_type was replaced and false if the entity_type wasn't replaced
-    #[must_use]
-    pub fn replace(&mut self, entity_type: EntityTypeRef, id: usize) -> bool {
-        if id >= self.types_by_id.len() {
-            return false;
-        }
-        self.types_by_id[id] = entity_type;
-        true
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (usize, EntityTypeRef)> + '_ {
