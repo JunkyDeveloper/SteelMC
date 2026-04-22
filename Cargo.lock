@@ -2859,6 +2859,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "bitflags",
+ "chrono",
  "criterion",
  "crossbeam",
  "enum_dispatch",

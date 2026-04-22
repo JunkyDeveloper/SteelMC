@@ -67,6 +67,7 @@ enum_dispatch.workspace = true
 text_components.workspace = true
 simdnbt.workspace = true
 tracing.workspace = true
+chrono = "0.4.44"
 
 [build-dependencies]
 serde.workspace = true

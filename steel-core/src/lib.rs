@@ -14,6 +14,7 @@ pub mod entity;
 pub mod fluid;
 pub mod inventory;
 pub mod level_data;
+pub mod network;
 pub mod physics;
 pub mod player;
 pub mod poi;
