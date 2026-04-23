@@ -7,6 +7,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+use steel_core::network::ban::IPBanManager;
 use steel_core::server::Server;
 use steel_login::JavaTcpClient;
 use tokio::{net::TcpListener, runtime::Runtime, select};
@@ -34,6 +35,8 @@ pub struct SteelServer {
     pub client_id: u64,
     /// The shared server state.
     pub server: Arc<Server>,
+    // Checks for banned IPs and whitelisted IPs
+    pub ip_ban_manager: IPBanManager,
 }
 
 impl SteelServer {
@@ -59,6 +62,7 @@ impl SteelServer {
             cancel_token,
             client_id: 0,
             server: Arc::new(server),
+            ip_ban_manager: IPBanManager::new(),
         }
     }
 
@@ -84,15 +88,17 @@ impl SteelServer {
                     if let Err(e) = connection.set_nodelay(true) {
                         log::warn!("Failed to set TCP_NODELAY: {e}");
                     }
-                    let (java_client, sender_recv, net_reader) = JavaTcpClient::new(connection, address, self.client_id, self.cancel_token.child_token(), self.server.clone(), task_tracker.clone());
-                    self.client_id = self.client_id.wrapping_add(1);
-                    log::info!("Accepted connection from Java Edition: {address} (id {})", self.client_id);
+                    if self.ip_ban_manager.can_join(address) {
+                        let (java_client, sender_recv, net_reader) = JavaTcpClient::new(connection, address, self.client_id, self.cancel_token.child_token(), self.server.clone(), task_tracker.clone());
+                        self.client_id = self.client_id.wrapping_add(1);
+                        log::info!("Accepted connection from Java Edition: {address} (id {})", self.client_id);
 
-                    let java_client = Arc::new(java_client);
-                    java_client.start_outgoing_packet_task(sender_recv);
-                    java_client.start_incoming_packet_task(net_reader);
-                    // Java_client won't drop until the incoming and outcoming task close
-                    // So we dont need to care about them here anymore
+                        let java_client = Arc::new(java_client);
+                        java_client.start_outgoing_packet_task(sender_recv);
+                        java_client.start_incoming_packet_task(net_reader);
+                        // Java_client won't drop until the incoming and outcoming task close
+                        // So we dont need to care about them here anymore
+                    }
                 }
             }
         }
