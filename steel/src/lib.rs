@@ -10,6 +10,7 @@ use std::{
 use steel_core::network::ban::IPBanManager;
 use steel_core::server::Server;
 use steel_login::JavaTcpClient;
+use tokio::io::AsyncWriteExt;
 use tokio::{net::TcpListener, runtime::Runtime, select};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
@@ -82,7 +83,7 @@ impl SteelServer {
                     break;
                 }
                 accept_result = self.tcp_listener.accept() => {
-                    let Ok((connection, address)) = accept_result else {
+                    let Ok((mut connection, address)) = accept_result else {
                         continue;
                     };
                     if let Err(e) = connection.set_nodelay(true) {
@@ -98,6 +99,10 @@ impl SteelServer {
                         java_client.start_incoming_packet_task(net_reader);
                         // Java_client won't drop until the incoming and outcoming task close
                         // So we dont need to care about them here anymore
+                    }
+                    else {
+                        connection.shutdown().await.ok();
+                        log::warn!("Connection from {address} was rejected because it is banned");
                     }
                 }
             }
