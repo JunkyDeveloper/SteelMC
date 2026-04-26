@@ -2,11 +2,11 @@
 //!
 //! The main library for the Steel Minecraft server.
 
+use chrono::DateTime;
 use std::{
     net::{Ipv4Addr, SocketAddrV4},
     sync::{Arc, OnceLock},
 };
-
 use steel_core::network::ban::IPBanManager;
 use steel_core::server::Server;
 use steel_login::JavaTcpClient;
@@ -22,6 +22,7 @@ pub mod logger;
 pub mod spawn_progress;
 
 pub use config::STEEL_CONFIG;
+use steel_core::network::ban;
 
 /// Static access to the server
 pub static SERVER: OnceLock<Arc<Server>> = OnceLock::new();
@@ -36,8 +37,7 @@ pub struct SteelServer {
     pub client_id: u64,
     /// The shared server state.
     pub server: Arc<Server>,
-    // Checks for banned IPs and whitelisted IPs
-    pub ip_ban_manager: IPBanManager,
+    ip_ban_manager: IPBanManager,
 }
 
 impl SteelServer {
@@ -63,12 +63,22 @@ impl SteelServer {
             cancel_token,
             client_id: 0,
             server: Arc::new(server),
-            ip_ban_manager: IPBanManager::new(),
+            ip_ban_manager: ban::init(),
         }
     }
 
     /// Starts the server and begins accepting connections.
     pub async fn start(&mut self, task_tracker: TaskTracker) {
+        if self.ip_ban_manager.banned_ips_config_all.len() == 0
+        {
+            self.ip_ban_manager.ban_ip(
+                "127.0.0.1".to_string(),
+                "start".to_string(),
+                "Because I want to!".to_string(),
+                chrono::Utc::now() + chrono::Duration::minutes(5),
+            );
+        }
+        self.ip_ban_manager.save_config();
         log::info!("Started Steel Server");
 
         let server = self.server.clone();
