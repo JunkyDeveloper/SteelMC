@@ -2,15 +2,12 @@
 //!
 //! The main library for the Steel Minecraft server.
 
-use chrono::DateTime;
 use std::{
     net::{Ipv4Addr, SocketAddrV4},
     sync::{Arc, OnceLock},
 };
 use steel_core::server::Server;
 use steel_login::JavaTcpClient;
-use text_components::TextComponent;
-use tokio::io::AsyncWriteExt;
 use tokio::{net::TcpListener, runtime::Runtime, select};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
@@ -23,6 +20,7 @@ pub mod spawn_progress;
 
 pub use config::STEEL_CONFIG;
 use steel_core::network::ban;
+use steel_core::network::ban::IP_ACCESS_POLICY;
 
 /// Static access to the server
 pub static SERVER: OnceLock<Arc<Server>> = OnceLock::new();
@@ -67,14 +65,6 @@ impl SteelServer {
 
     /// Starts the server and begins accepting connections.
     pub async fn start(&mut self, task_tracker: TaskTracker) {
-        if ban::IP_MANAGER.banned_count() == 0 {
-            ban::IP_MANAGER.ban_ip(
-                "127.0.0.1".to_string(),
-                "start".to_string(),
-                "Because I want to!".to_string(),
-                Some(chrono::Utc::now() + chrono::Duration::minutes(5)),
-            );
-        }
         log::info!("Started Steel Server");
 
         let server = self.server.clone();
@@ -95,7 +85,7 @@ impl SteelServer {
                     if let Err(e) = connection.set_nodelay(true) {
                         log::warn!("Failed to set TCP_NODELAY: {e}");
                     }
-                    if ban::IP_MANAGER.can_join_preconnecting(address) {
+                    if IP_ACCESS_POLICY.can_join_preconnecting(&address.ip()) {
                         let (java_client, sender_recv, net_reader) = JavaTcpClient::new(connection, address, self.client_id, self.cancel_token.child_token(), self.server.clone(), task_tracker.clone());
                         self.client_id = self.client_id.wrapping_add(1);
                         log::info!("Accepted connection from Java Edition: {address} (id {})", self.client_id);
@@ -119,6 +109,6 @@ impl SteelServer {
 
 impl Drop for SteelServer {
     fn drop(&mut self) {
-        ban::IP_MANAGER.save_config();
+        ban::IP_ACCESS_POLICY.save_config();
     }
 }

@@ -1,12 +1,12 @@
 //! IP ban / whitelist / blacklist management.
 //!
 //! Persisted in `banned.json`, `whitelist.json`, and `blacklist.json` at the
-//! server root. Access the global manager via [`IP_MANAGER`].
+//! server root. Access the global manager via [`IP_ACCESS_POLICY`].
 
 use chrono::{DateTime, Utc};
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::path::Path;
 use std::sync::LazyLock;
 use std::{fs, io};
@@ -102,7 +102,7 @@ struct IpAccessPolicyState {
 /// Thread-safe holder for ban / whitelist / blacklist state.
 ///
 /// All public methods take `&self`; mutation goes through an internal
-/// `SyncRwLock`. Use the global [`IP_MANAGER`] static — there is no reason
+/// `SyncRwLock`. Use the global [`IP_ACCESS_POLICY`] static — there is no reason
 /// to construct a second instance outside of tests.
 pub struct IpAccessPolicy {
     state: SyncRwLock<IpAccessPolicyState>,
@@ -112,7 +112,7 @@ pub struct IpAccessPolicy {
 ///
 /// Auto-initializes on first access by loading `whitelist.json`,
 /// `banned.json`, and `blacklist.json` from the server root.
-pub static IP_MANAGER: LazyLock<IpAccessPolicy> = LazyLock::new(|| {
+pub static IP_ACCESS_POLICY: LazyLock<IpAccessPolicy> = LazyLock::new(|| {
     let manager = IpAccessPolicy::empty();
     manager.load_whitelisted_ips();
     manager.load_banned_ips();
@@ -122,7 +122,7 @@ pub static IP_MANAGER: LazyLock<IpAccessPolicy> = LazyLock::new(|| {
 
 impl IpAccessPolicy {
     /// Builds a manager with no entries loaded. Used as the starting point
-    /// for [`IP_MANAGER`] before the JSON files are read.
+    /// for [`IP_ACCESS_POLICY`] before the JSON files are read.
     pub fn empty() -> Self {
         Self {
             state: SyncRwLock::new(IpAccessPolicyState {
@@ -250,7 +250,7 @@ impl IpAccessPolicy {
     ///
     /// The blacklist gates connections at accept time
     /// ([`can_join_preconnecting`](Self::can_join_preconnecting)); the ban
-    /// list gates them later ([`can_join`](Self::can_join)).
+    /// list gates them later ([`can_join`](Self::is_banned)).
     pub fn load_blacklisted_ips(&self) {
         let path = Path::new("blacklist.json");
 
@@ -283,10 +283,10 @@ impl IpAccessPolicy {
     /// If a whitelist is active, only whitelisted IPs pass. Otherwise, only
     /// non-blacklisted IPs pass. Used by the accept loop to drop banned
     /// connections without going through the login handshake.
-    pub fn can_join_preconnecting(&self, address: SocketAddr) -> bool {
+    pub fn can_join_preconnecting(&self, ip: &IpAddr) -> bool {
         let state = self.state.read();
-        (state.has_whitelist && state.white_list_ips.contains(&address.ip()))
-            || (!state.has_whitelist && !state.blacklisted_ips.contains(&address.ip()))
+        (state.has_whitelist && state.white_list_ips.contains(ip))
+            || (!state.has_whitelist && !state.blacklisted_ips.contains(ip))
     }
 
     /// Whether `address` may join the game.
@@ -294,10 +294,19 @@ impl IpAccessPolicy {
     /// If a whitelist is active, only whitelisted IPs pass. Otherwise, only
     /// non-banned IPs pass. Checked after the connection has progressed past
     /// the accept stage.
-    pub fn can_join(&self, address: SocketAddr) -> bool {
+    pub fn is_banned(&self, ip: &IpAddr) -> bool {
         let state = self.state.read();
-        (state.has_whitelist && state.white_list_ips.contains(&address.ip()))
-            || (!state.has_whitelist && !state.banned_ips.contains(&address.ip()))
+        (state.has_whitelist && !state.white_list_ips.contains(ip))
+            || (!state.has_whitelist && state.banned_ips.contains(ip))
+    }
+
+    pub fn get_banned_reason(&self, ip: &IpAddr) -> Option<String> {
+        let state = self.state.read();
+        state
+            .banned_ips_config_all
+            .iter()
+            .find(|b| b.ip == *ip)
+            .map(|b| b.reason.clone())
     }
 
     /// Persists ban list, whitelist, and blacklist to their JSON files.

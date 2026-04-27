@@ -12,6 +12,7 @@ use std::{
 };
 
 use crossbeam::atomic::AtomicCell;
+use steel_core::network::ban::IP_ACCESS_POLICY;
 use steel_core::player::{ClientInformation, GameProfile, PlayerConnection};
 use steel_core::server::Server;
 use steel_protocol::{
@@ -419,13 +420,18 @@ impl JavaTcpClient {
     /// Handles a login packet.
     pub async fn handle_login(&self, packet: RawPacket) -> Result<(), PacketError> {
         let data = &mut Cursor::new(packet.payload.as_slice());
-        self.kick(TextComponent::from("looool")).await;
+        if IP_ACCESS_POLICY.is_banned(&self.address.ip()) {
+            self.kick(TextComponent::from(
+                IP_ACCESS_POLICY
+                    .get_banned_reason(&self.address.ip())
+                    .unwrap_or("You are banned".to_string()),
+            ))
+            .await;
+        }
         match packet.id {
             login_packets::S_HELLO => self.handle_hello(SHello::read_packet(data)?).await,
             login_packets::S_KEY => self.handle_key(SKey::read_packet(data)?).await,
-            login_packets::S_LOGIN_ACKNOWLEDGED => {
-                self.handle_login_acknowledged().await;
-            }
+            login_packets::S_LOGIN_ACKNOWLEDGED => self.handle_login_acknowledged().await,
             _ => return Err(PacketError::InvalidProtocol("Login".to_string())),
         }
         Ok(())
