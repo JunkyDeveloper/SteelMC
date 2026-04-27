@@ -7,9 +7,9 @@ use std::{
     net::{Ipv4Addr, SocketAddrV4},
     sync::{Arc, OnceLock},
 };
-use steel_core::network::ban::IPBanManager;
 use steel_core::server::Server;
 use steel_login::JavaTcpClient;
+use text_components::TextComponent;
 use tokio::io::AsyncWriteExt;
 use tokio::{net::TcpListener, runtime::Runtime, select};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -37,7 +37,6 @@ pub struct SteelServer {
     pub client_id: u64,
     /// The shared server state.
     pub server: Arc<Server>,
-    ip_ban_manager: IPBanManager,
 }
 
 impl SteelServer {
@@ -63,22 +62,19 @@ impl SteelServer {
             cancel_token,
             client_id: 0,
             server: Arc::new(server),
-            ip_ban_manager: ban::init(),
         }
     }
 
     /// Starts the server and begins accepting connections.
     pub async fn start(&mut self, task_tracker: TaskTracker) {
-        if self.ip_ban_manager.banned_ips_config_all.len() == 0
-        {
-            self.ip_ban_manager.ban_ip(
+        if ban::IP_MANAGER.banned_count() == 0 {
+            ban::IP_MANAGER.ban_ip(
                 "127.0.0.1".to_string(),
                 "start".to_string(),
                 "Because I want to!".to_string(),
-                chrono::Utc::now() + chrono::Duration::minutes(5),
+                Some(chrono::Utc::now() + chrono::Duration::minutes(5)),
             );
         }
-        self.ip_ban_manager.save_config();
         log::info!("Started Steel Server");
 
         let server = self.server.clone();
@@ -93,13 +89,13 @@ impl SteelServer {
                     break;
                 }
                 accept_result = self.tcp_listener.accept() => {
-                    let Ok((mut connection, address)) = accept_result else {
+                    let Ok((connection, address)) = accept_result else {
                         continue;
                     };
                     if let Err(e) = connection.set_nodelay(true) {
                         log::warn!("Failed to set TCP_NODELAY: {e}");
                     }
-                    if self.ip_ban_manager.can_join(address) {
+                    if ban::IP_MANAGER.can_join_preconnecting(address) {
                         let (java_client, sender_recv, net_reader) = JavaTcpClient::new(connection, address, self.client_id, self.cancel_token.child_token(), self.server.clone(), task_tracker.clone());
                         self.client_id = self.client_id.wrapping_add(1);
                         log::info!("Accepted connection from Java Edition: {address} (id {})", self.client_id);
@@ -111,12 +107,18 @@ impl SteelServer {
                         // So we dont need to care about them here anymore
                     }
                     else {
-                        connection.shutdown().await.ok();
+                        drop(connection);
                         log::warn!("Connection from {address} was rejected because it is banned");
                     }
                 }
             }
         }
         let _ = server_handle.await;
+    }
+}
+
+impl Drop for SteelServer {
+    fn drop(&mut self) {
+        ban::IP_MANAGER.save_config();
     }
 }

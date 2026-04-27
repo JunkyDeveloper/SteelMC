@@ -419,7 +419,7 @@ impl JavaTcpClient {
     /// Handles a login packet.
     pub async fn handle_login(&self, packet: RawPacket) -> Result<(), PacketError> {
         let data = &mut Cursor::new(packet.payload.as_slice());
-
+        self.kick(TextComponent::from("looool")).await;
         match packet.id {
             login_packets::S_HELLO => self.handle_hello(SHello::read_packet(data)?).await,
             login_packets::S_KEY => self.handle_key(SKey::read_packet(data)?).await,
