@@ -50,6 +50,9 @@ use tokio_util::sync::CancellationToken;
 /// Interval in ticks between tab list updates (20 ticks = 1 second).
 const TAB_LIST_UPDATE_INTERVAL: u64 = 20;
 
+/// Interval in ticks between sweeps of expired IP bans (1200 ticks = 1 minute).
+const BAN_EXPIRY_SWEEP_INTERVAL: u64 = 20 * 60;
+
 /// Tick rate for the chunk sending loop.
 const CHUNK_SENDING_TPS: u64 = 20;
 
@@ -463,6 +466,13 @@ impl Server {
 
             if tick_count % TAB_LIST_UPDATE_INTERVAL == 0 {
                 self.broadcast_tab_list(tps, mspt);
+            }
+
+            if tick_count % BAN_EXPIRY_SWEEP_INTERVAL == 0 {
+                crate::network::ban::IP_ACCESS_POLICY.expire_bans();
+                for entry in crate::network::ban::IP_ACCESS_POLICY.get_banned_ips() {
+                    tracing::warn!("{}", entry);
+                }
             }
 
             if should_sprint_this_tick {

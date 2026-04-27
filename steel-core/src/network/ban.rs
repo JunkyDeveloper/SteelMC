@@ -1,11 +1,12 @@
 //! IP ban / whitelist / blacklist management.
 //!
-//! Persisted in `banned.json`, `whitelist.json`, and `blacklist.json` at the
-//! server root. Access the global manager via [`IP_ACCESS_POLICY`].
+//! Persisted in `config/banned.json`, `config/whitelist.json`, and `config/blacklist.json`.
+//! Access the global manager via [`IP_ACCESS_POLICY`].
 
 use chrono::{DateTime, Utc};
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::net::IpAddr;
 use std::path::Path;
 use std::sync::LazyLock;
@@ -14,6 +15,10 @@ use steel_utils::locks::SyncRwLock;
 
 const DATETIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S %z";
 const FOREVER: &str = "forever";
+
+const BANNED_PATH: &str = "config/banned.json";
+const WHITELIST_PATH: &str = "config/whitelist.json";
+const BLACKLIST_PATH: &str = "config/blacklist.json";
 
 /// Serde adapter for a required timestamp, formatted as `"YYYY-MM-DD HH:MM:SS +0000"`.
 #[allow(dead_code)]
@@ -91,6 +96,20 @@ pub struct BannedIP {
     pub reason: String,
 }
 
+/// Extends vanilla's `commands.banlist.entry` format (`<ip> was banned by
+/// <source>: <reason>`) with the expiry, since this rendering is used for
+/// operator-facing logs where the expiry is the relevant info.
+impl fmt::Display for BannedIP {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} was banned by {} (expires ", self.ip, self.source)?;
+        match self.expires {
+            Some(expires) => write!(f, "{}", expires.format(DATETIME_FORMAT))?,
+            None => f.write_str(FOREVER)?,
+        }
+        write!(f, "): {}", self.reason)
+    }
+}
+
 /// Internal state bundle held behind [`IpAccessPolicy`]'s `SyncRwLock`.
 struct IpAccessPolicyState {
     banned_ips_config_all: Vec<BannedIP>,
@@ -112,8 +131,8 @@ pub struct IpAccessPolicy {
 
 /// Global IP ban manager.
 ///
-/// Auto-initializes on first access by loading `whitelist.json`,
-/// `banned.json`, and `blacklist.json` from the server root.
+/// Auto-initializes on first access by loading `config/whitelist.json`,
+/// `config/banned.json`, and `config/blacklist.json`.
 pub static IP_ACCESS_POLICY: LazyLock<IpAccessPolicy> = LazyLock::new(|| {
     let manager = IpAccessPolicy::empty();
     manager.load_whitelisted_ips();
@@ -138,9 +157,19 @@ impl IpAccessPolicy {
     }
 
     /// Removes any bans whose `expires` timestamp has passed.
-    // TODO: not yet implemented — sweep `banned_ips_config_all` and rebuild
-    // `banned_ips` once an expiry-driven path or scheduled task exists.
-    pub fn expire_bans(&self) {}
+    ///
+    /// Deviates from vanilla: `StoredUserList.get` prunes on every lookup,
+    /// paying the cost on the hot path. Steel keeps a separate `banned_ips`
+    /// HashSet so [`is_banned`](Self::is_banned) stays an O(1) check, and
+    /// shifts the pruning work onto a periodic call to this method instead.
+    pub fn expire_bans(&self) {
+        let now = Utc::now();
+        let mut state = self.state.write();
+        state
+            .banned_ips_config_all
+            .retain(|b| b.expires.is_none_or(|t| t > now));
+        state.banned_ips = state.banned_ips_config_all.iter().map(|b| b.ip).collect();
+    }
 
     /// Adds a ban for `ip`. Persisted only when [`save_config`](Self::save_config) runs.
     ///
@@ -213,23 +242,25 @@ impl IpAccessPolicy {
             .insert(ip.parse().unwrap());
     }
 
-    /// Reloads the ban list from `banned.json`, replacing the current set.
+    /// Reloads the ban list from `config/banned.json`, replacing the current set.
     ///
     /// Creates the file with `[]` if it does not exist. On parse error,
     /// logs and keeps the existing in-memory state.
     pub fn load_banned_ips(&self) {
-        let path = Path::new("banned.json");
+        let path = Path::new(BANNED_PATH);
 
         let raw = match fs::read_to_string(path) {
             Ok(content) => content,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                tracing::warn!("banned.json not found — creating empty file");
+                tracing::warn!("{BANNED_PATH} not found — creating empty file");
+                fs::create_dir_all(path.parent().unwrap_or(Path::new("config")))
+                    .unwrap_or_else(|e| tracing::error!("Failed to create config dir: {}", e));
                 fs::write(path, "[]")
-                    .unwrap_or_else(|e| tracing::error!("Failed to create banned.json: {}", e));
+                    .unwrap_or_else(|e| tracing::error!("Failed to create {BANNED_PATH}: {}", e));
                 "[]".to_string()
             }
             Err(e) => {
-                tracing::error!("Failed to read banned.json: {}", e);
+                tracing::error!("Failed to read {BANNED_PATH}: {}", e);
                 return;
             }
         };
@@ -246,27 +277,30 @@ impl IpAccessPolicy {
                 drop(state);
                 tracing::info!("Loaded {} banned IPs", count);
             }
-            Err(e) => tracing::error!("banned.json invalid JSON, keeping previous state: {}", e),
+            Err(e) => tracing::error!("{BANNED_PATH} invalid JSON, keeping previous state: {}", e),
         }
     }
 
-    /// Reloads the whitelist from `whitelist.json`, replacing the current set.
+    /// Reloads the whitelist from `config/whitelist.json`, replacing the current set.
     ///
     /// Creates the file with `[]` if it does not exist. On parse error,
     /// logs and keeps the existing in-memory state.
     pub fn load_whitelisted_ips(&self) {
-        let path = Path::new("whitelist.json");
+        let path = Path::new(WHITELIST_PATH);
 
         let raw = match fs::read_to_string(path) {
             Ok(content) => content,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                tracing::warn!("whitelist.json not found — creating empty file");
-                fs::write(path, "[]")
-                    .unwrap_or_else(|e| tracing::error!("Failed to create whitelist.json: {}", e));
+                tracing::warn!("{WHITELIST_PATH} not found — creating empty file");
+                fs::create_dir_all(path.parent().unwrap_or(Path::new("config")))
+                    .unwrap_or_else(|e| tracing::error!("Failed to create config dir: {}", e));
+                fs::write(path, "[]").unwrap_or_else(|e| {
+                    tracing::error!("Failed to create {WHITELIST_PATH}: {}", e)
+                });
                 "[]".to_string()
             }
             Err(e) => {
-                tracing::error!("Failed to read whitelist.json: {}", e);
+                tracing::error!("Failed to read {WHITELIST_PATH}: {}", e);
                 return;
             }
         };
@@ -277,11 +311,14 @@ impl IpAccessPolicy {
                 self.state.write().white_list_ips = white_list;
                 tracing::info!("Loaded {} white listed IPs", count);
             }
-            Err(e) => tracing::error!("whitelist.json invalid JSON, keeping previous state: {}", e),
+            Err(e) => tracing::error!(
+                "{WHITELIST_PATH} invalid JSON, keeping previous state: {}",
+                e
+            ),
         }
     }
 
-    /// Reloads the blacklist from `blacklist.json`, replacing the current set.
+    /// Reloads the blacklist from `config/blacklist.json`, replacing the current set.
     ///
     /// Creates the file with `[]` if it does not exist. On parse error,
     /// logs and keeps the existing in-memory state.
@@ -290,18 +327,21 @@ impl IpAccessPolicy {
     /// ([`can_join_preconnecting`](Self::can_join_preconnecting)); the ban
     /// list gates them later ([`can_join`](Self::is_banned)).
     pub fn load_blacklisted_ips(&self) {
-        let path = Path::new("blacklist.json");
+        let path = Path::new(BLACKLIST_PATH);
 
         let raw = match fs::read_to_string(path) {
             Ok(content) => content,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                tracing::warn!("blacklist.json not found — creating empty file");
-                fs::write(path, "[]")
-                    .unwrap_or_else(|e| tracing::error!("Failed to create blacklist.json: {}", e));
+                tracing::warn!("{BLACKLIST_PATH} not found — creating empty file");
+                fs::create_dir_all(path.parent().unwrap_or(Path::new("config")))
+                    .unwrap_or_else(|e| tracing::error!("Failed to create config dir: {}", e));
+                fs::write(path, "[]").unwrap_or_else(|e| {
+                    tracing::error!("Failed to create {BLACKLIST_PATH}: {}", e)
+                });
                 "[]".to_string()
             }
             Err(e) => {
-                tracing::error!("Failed to read blacklist.json: {}", e);
+                tracing::error!("Failed to read {BLACKLIST_PATH}: {}", e);
                 return;
             }
         };
@@ -312,7 +352,10 @@ impl IpAccessPolicy {
                 self.state.write().blacklisted_ips = black_list;
                 tracing::info!("Loaded {} blacklisted IPs", count);
             }
-            Err(e) => tracing::error!("blacklist.json invalid JSON, keeping previous state: {}", e),
+            Err(e) => tracing::error!(
+                "{BLACKLIST_PATH} invalid JSON, keeping previous state: {}",
+                e
+            ),
         }
     }
 
@@ -355,20 +398,16 @@ impl IpAccessPolicy {
     /// # Panics
     /// Panics if serialization or file write fails.
     pub fn save_config(&self) {
+        fs::create_dir_all("config").expect("Failed to create config dir");
         let state = self.state.read();
         let json_out = serde_json::to_string_pretty(&state.banned_ips_config_all)
             .expect("Failed to serialize banned_ips_config_all");
-        fs::write("banned.json", &json_out).expect("Failed to write banned.json");
+        fs::write(BANNED_PATH, &json_out).expect("Failed to write config/banned.json");
         let json_out = serde_json::to_string_pretty(&state.white_list_ips)
             .expect("Failed to serialize white_list_ips");
-        fs::write("whitelist.json", &json_out).expect("Failed to write whitelist.json");
+        fs::write(WHITELIST_PATH, &json_out).expect("Failed to write config/whitelist.json");
         let json_out = serde_json::to_string_pretty(&state.blacklisted_ips)
             .expect("Failed to serialize blacklisted_ips");
-        fs::write("blacklist.json", &json_out).expect("Failed to write blacklist.json");
-    }
-
-    /// Number of entries currently in the ban list.
-    pub fn banned_count(&self) -> usize {
-        self.state.read().banned_ips_config_all.len()
+        fs::write(BLACKLIST_PATH, &json_out).expect("Failed to write config/blacklist.json");
     }
 }
