@@ -15,6 +15,7 @@ use steel_utils::locks::SyncRwLock;
 const DATETIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S %z";
 const FOREVER: &str = "forever";
 
+/// Serde adapter for a required timestamp, formatted as `"YYYY-MM-DD HH:MM:SS +0000"`.
 #[allow(dead_code)]
 mod local_datetime_format {
     use super::DATETIME_FORMAT;
@@ -73,7 +74,7 @@ mod local_datetime_or_forever_format {
 }
 
 /// A single entry in `banned.json`.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BannedIP {
     /// The banned address.
     pub ip: IpAddr,
@@ -90,6 +91,7 @@ pub struct BannedIP {
     pub reason: String,
 }
 
+/// Internal state bundle held behind [`IpAccessPolicy`]'s `SyncRwLock`.
 struct IpAccessPolicyState {
     banned_ips_config_all: Vec<BannedIP>,
     banned_ips: FxHashSet<IpAddr>,
@@ -161,6 +163,42 @@ impl IpAccessPolicy {
             reason,
         });
         state.banned_ips.insert(parsed);
+    }
+
+    /// Removes `ip` from the ban list. Persisted only when [`save_config`](Self::save_config) runs.
+    pub fn un_ban_ip(&self, ip: &IpAddr) {
+        let mut state = self.state.write();
+        state.banned_ips.remove(ip);
+        state.banned_ips_config_all.retain(|b| b.ip != *ip);
+    }
+    /// Removes `ip` from the blacklist. Persisted only when [`save_config`](Self::save_config) runs.
+    pub fn un_blacklist_ip(&self, ip: &IpAddr) {
+        let mut state = self.state.write();
+        state.blacklisted_ips.remove(ip);
+    }
+
+    /// Returns a snapshot of all currently whitelisted IPs.
+    pub fn get_whitelist_ips(&self) -> Vec<IpAddr> {
+        self.state
+            .read()
+            .white_list_ips
+            .iter()
+            .map(|ip| ip.clone())
+            .collect()
+    }
+
+    /// Returns a snapshot of all current ban entries, including metadata.
+    pub fn get_banned_ips(&self) -> Vec<BannedIP> {
+        self.state.read().banned_ips_config_all.clone()
+    }
+    /// Returns a snapshot of all currently blacklisted IPs.
+    pub fn get_blacklisted_ips(&self) -> Vec<IpAddr> {
+        self.state
+            .read()
+            .blacklisted_ips
+            .iter()
+            .map(|ip| ip.clone())
+            .collect()
     }
 
     /// Adds `ip` to the whitelist. Persisted only when
@@ -300,6 +338,7 @@ impl IpAccessPolicy {
             || (!state.has_whitelist && state.banned_ips.contains(ip))
     }
 
+    /// Returns the ban reason for `ip`, or `None` if the IP is not in the ban list.
     pub fn get_banned_reason(&self, ip: &IpAddr) -> Option<String> {
         let state = self.state.read();
         state
