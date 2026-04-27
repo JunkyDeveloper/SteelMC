@@ -96,6 +96,7 @@ pub struct BannedIP {
     pub reason: String,
 }
 
+// TODO: DELETE ME
 /// Extends vanilla's `commands.banlist.entry` format (`<ip> was banned by
 /// <source>: <reason>`) with the expiry, since this rendering is used for
 /// operator-facing logs where the expiry is the relevant info.
