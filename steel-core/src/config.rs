@@ -3,6 +3,7 @@
 //! The `ServerConfig` struct is defined here, but loading is handled by the `steel` crate.
 //! Steel-core accesses config via `STEEL_CONFIG` after steel initializes it.
 
+use std::net::IpAddr;
 use std::ops::Deref;
 use std::sync::OnceLock;
 
@@ -170,4 +171,7 @@ pub struct ServerConfig {
     pub compression: Option<CompressionInfo>,
     /// All settings and configurations for server links
     pub server_links: Option<ServerLinks>,
+    /// All ips from where clients can connect to this server
+    #[serde(default)]
+    pub white_listed_ips: Vec<IpAddr>,
 }

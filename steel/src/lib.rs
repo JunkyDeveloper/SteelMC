@@ -85,7 +85,7 @@ impl SteelServer {
                     if let Err(e) = connection.set_nodelay(true) {
                         log::warn!("Failed to set TCP_NODELAY: {e}");
                     }
-                    if IP_ACCESS_POLICY.can_join_preconnecting(&address.ip()) {
+                    if IP_ACCESS_POLICY.can_connect(&address.ip()) {
                         let (java_client, sender_recv, net_reader) = JavaTcpClient::new(connection, address, self.client_id, self.cancel_token.child_token(), self.server.clone(), task_tracker.clone());
                         self.client_id = self.client_id.wrapping_add(1);
                         log::info!("Accepted connection from Java Edition: {address} (id {})", self.client_id);

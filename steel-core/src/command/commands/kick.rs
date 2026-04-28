@@ -42,6 +42,10 @@ pub fn command_handler() -> impl CommandHandlerDyn {
     )
 }
 
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "executes() callback API requires Fn(...) -> Result<(), CommandError>"
+)]
 fn kick_player(
     sender: &mut CommandSender,
     players: Vec<Arc<Player>>,
@@ -49,7 +53,7 @@ fn kick_player(
 ) -> Result<(), CommandError> {
     // no player return commands.kick.owner.failed (vanilla)
     if players.is_empty() {
-        sender.send_message(&COMMANDS_KICK_OWNER_FAILED.msg().into())
+        sender.send_message(&COMMANDS_KICK_OWNER_FAILED.msg().into());
     }
 
     let real_reason = reason.unwrap_or(MULTIPLAYER_DISCONNECT_KICKED.msg().component());
@@ -58,7 +62,7 @@ fn kick_player(
         // First, disconnect the player
         player
             .connection
-            .disconnect_with_reason(real_reason.clone()); //Sometimes, it's just "Disconnected" instead of the message?
+            .disconnect_with_reason(real_reason.clone());
 
         // Then inform the sender of the command
         sender.send_message(

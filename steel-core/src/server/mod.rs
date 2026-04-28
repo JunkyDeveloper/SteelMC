@@ -13,6 +13,7 @@ use crate::chunk::world_gen_context::ChunkGeneratorType;
 use crate::command::CommandDispatcher;
 use crate::config::{STEEL_CONFIG, WorldGeneratorTypes, WorldStorageConfig};
 use crate::entity::{SharedEntity, init_entities};
+use crate::network::ban::IP_ACCESS_POLICY;
 
 use crate::player::Player;
 use crate::player::chunk_sender::ChunkSender;
@@ -469,8 +470,8 @@ impl Server {
             }
 
             if tick_count % BAN_EXPIRY_SWEEP_INTERVAL == 0 {
-                crate::network::ban::IP_ACCESS_POLICY.expire_bans();
-                for entry in crate::network::ban::IP_ACCESS_POLICY.get_banned_ips() {
+                IP_ACCESS_POLICY.expire_bans();
+                for entry in IP_ACCESS_POLICY.get_banned_ips() {
                     tracing::warn!("{}", entry);
                 }
             }
