@@ -220,7 +220,10 @@ impl IpAccessPolicy {
         source: String,
         reason: TextComponent,
         expires: Option<DateTime<Utc>>,
-    ) {
+    ) -> bool {
+        if self.is_banned(&ip) {
+            return false;
+        }
         let mut state = self.state.write();
         state.banned_ips_config_all.push(BannedIP {
             ip,
@@ -230,6 +233,8 @@ impl IpAccessPolicy {
             reason,
         });
         state.banned_ips.insert(ip);
+
+        true
     }
 
     /// Removes `ip` from the ban list. Persisted only when [`save_config`](Self::save_config) runs.

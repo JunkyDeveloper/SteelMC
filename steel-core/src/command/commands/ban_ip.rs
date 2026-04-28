@@ -18,7 +18,8 @@ use crate::{
     player::Player,
 };
 use steel_utils::translations::{
-    COMMANDS_BANIP_INFO, COMMANDS_BANIP_SUCCESS, MULTIPLAYER_DISCONNECT_BANNED_IP_REASON,
+    COMMANDS_BANIP_FAILED, COMMANDS_BANIP_INFO, COMMANDS_BANIP_SUCCESS,
+    MULTIPLAYER_DISCONNECT_BANNED_IP_REASON,
 };
 use text_components::format::Color;
 use text_components::{Modifier, TextComponent};
@@ -74,19 +75,21 @@ fn ban_ip_player(
         |sender| sender.gameprofile.name.clone(),
     );
 
-    for player in players.clone() {
-        player.connection.disconnect_with_reason(
-            MULTIPLAYER_DISCONNECT_BANNED_IP_REASON
-                .message([real_reason.clone()])
-                .component(),
-        );
-
+    for player in &players {
         // And apply the ban
-        IP_ACCESS_POLICY.ban_ip(
+        if !IP_ACCESS_POLICY.ban_ip(
             player.connection.remote_address().ip(),
             final_sender.clone(),
             real_reason.clone(),
             None,
+        ) {
+            sender.send_message(&COMMANDS_BANIP_FAILED.msg().component());
+            continue;
+        }
+        player.connection.disconnect_with_reason(
+            MULTIPLAYER_DISCONNECT_BANNED_IP_REASON
+                .message([real_reason.clone()])
+                .component(),
         );
     }
 
@@ -127,8 +130,12 @@ fn ban_ip_player_by_ip(
         |sender| sender.gameprofile.name.clone(),
     );
 
-    //BAN IP
-    IP_ACCESS_POLICY.ban_ip(valid_ip, final_sender.clone(), real_reason.clone(), None);
+    //BAN IP + verify if the ip is not already banned
+    if !IP_ACCESS_POLICY.ban_ip(valid_ip, final_sender.clone(), real_reason.clone(), None) {
+        ctx.sender
+            .send_message(&COMMANDS_BANIP_FAILED.msg().component());
+        return Ok(());
+    }
     let mut player_list: Vec<Arc<Player>> = Vec::new();
     for player in ctx.server.get_players() {
         if player.connection.remote_address().ip() == valid_ip {
