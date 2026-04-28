@@ -19,7 +19,6 @@ use steel_utils::translations::{
     COMMANDS_BANIP_FAILED, COMMANDS_KICK_SUCCESS, MULTIPLAYER_DISCONNECT_BANNED_IP_REASON,
 };
 use text_components::TextComponent;
-use text_components::resolving::NoResolutor;
 
 /// Handler for the "ban-ip" command.
 #[must_use]
@@ -78,7 +77,7 @@ fn ban_ip_player(
         IP_ACCESS_POLICY.ban_ip(
             player.connection.remote_address().ip(),
             final_sender.clone(),
-            real_reason.to_plain(&NoResolutor),
+            real_reason.clone(),
             None,
         );
 

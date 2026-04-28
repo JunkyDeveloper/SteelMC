@@ -94,7 +94,7 @@ pub struct BannedIP {
     #[serde(with = "local_datetime_or_forever_format")]
     pub expires: Option<DateTime<Utc>>,
     /// Operator-provided reason shown to the banned client.
-    pub reason: String,
+    pub reason: TextComponent,
 }
 
 /// On-disk shape of `config/bans.json`. Holds both the metadata-rich ban
@@ -119,7 +119,7 @@ struct VanillaBannedIp {
     #[serde(with = "local_datetime_or_forever_format")]
     expires: Option<DateTime<Utc>>,
     #[serde(default)]
-    reason: Option<String>,
+    reason: Option<TextComponent>,
 }
 
 impl From<VanillaBannedIp> for BannedIP {
@@ -131,8 +131,8 @@ impl From<VanillaBannedIp> for BannedIP {
             expires: v.expires,
             reason: v
                 .reason
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| DEFAULT_BAN_REASON.to_string()),
+                .filter(|s| !s.to_string().is_empty())
+                .unwrap_or_else(|| TextComponent::plain(DEFAULT_BAN_REASON)),
         }
     }
 }
@@ -218,7 +218,7 @@ impl IpAccessPolicy {
         &self,
         ip: IpAddr,
         source: String,
-        reason: String,
+        reason: TextComponent,
         expires: Option<DateTime<Utc>>,
     ) {
         let mut state = self.state.write();
@@ -383,7 +383,7 @@ impl IpAccessPolicy {
             .find(|b| b.ip == *ip)
             .map(|b| {
                 MULTIPLAYER_DISCONNECT_BANNED_IP_REASON
-                    .message([TextComponent::plain(b.reason.clone())])
+                    .message([b.reason.clone()])
                     .component()
             })
     }
