@@ -18,11 +18,10 @@ use crate::{
     player::Player,
 };
 use steel_utils::translations::{
-    COMMANDS_BANIP_FAILED, COMMANDS_BANIP_INFO, COMMANDS_BANIP_SUCCESS,
+    COMMANDS_BANIP_FAILED, COMMANDS_BANIP_INFO, COMMANDS_BANIP_INVALID, COMMANDS_BANIP_SUCCESS,
     MULTIPLAYER_DISCONNECT_BANNED_IP_REASON,
 };
-use text_components::format::Color;
-use text_components::{Modifier, TextComponent};
+use text_components::TextComponent;
 
 /// Handler for the "ban-ip" command.
 #[must_use]
@@ -119,9 +118,7 @@ fn ban_ip_player_by_ip(
 ) -> Result<(), CommandError> {
     // Wrong IP = custom Error
     let valid_ip = ip.ok_or_else(|| {
-        CommandError::CommandFailed(Box::new(
-            TextComponent::plain("The IP is not valid").color(Color::Red),
-        ))
+        CommandError::CommandFailed(Box::new(COMMANDS_BANIP_INVALID.msg().component()))
     })?;
 
     let real_reason = reason.unwrap_or(TextComponent::plain("Banned by an operator."));

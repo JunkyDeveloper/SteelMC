@@ -1,10 +1,10 @@
-//! Un argument pour parser les adresses IP.
+//! An IP argument.
 use crate::command::arguments::CommandArgument;
 use crate::command::context::CommandContext;
 use std::net::IpAddr;
 use steel_protocol::packets::game::{ArgumentStringTypeBehavior, ArgumentType, SuggestionType};
 
-/// Un argument d'adresse IP.
+/// The struct for the IP argument.
 pub struct IpArgument;
 
 impl CommandArgument for IpArgument {
@@ -17,9 +17,9 @@ impl CommandArgument for IpArgument {
     ) -> Option<(&'a [&'a str], Self::Output)> {
         let s = arg.first()?;
 
-        let ip: IpAddr = s.parse().ok()?;
+        let ip: Option<IpAddr> = s.parse().ok();
 
-        Some((&arg[1..], Some(ip)))
+        Some((&arg[1..], ip))
     }
 
     fn usage(&self) -> (ArgumentType, Option<SuggestionType>) {
