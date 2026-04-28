@@ -250,7 +250,7 @@ impl IpAccessPolicy {
         state.blacklisted_ips.remove(ip);
     }
 
-    /// Removes `ip` from the blacklist. Persisted only when [`save_config`](Self::save_config) runs.
+    /// Adds `ip` from the blacklist. Persisted only when [`save_config`](Self::save_config) runs.
     pub fn blacklist_ip(&self, ip: &IpAddr) {
         let mut state = self.state.write();
         state.blacklisted_ips.insert(*ip);
