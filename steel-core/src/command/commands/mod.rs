@@ -10,6 +10,7 @@ pub mod gamerule;
 pub mod give;
 pub mod kick;
 pub mod kill;
+pub mod pardon_ip;
 pub mod seed;
 pub mod steel;
 pub mod stop;

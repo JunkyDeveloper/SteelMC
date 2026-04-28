@@ -39,6 +39,7 @@ impl CommandDispatcher {
         dispatcher.register(commands::kick::command_handler());
         dispatcher.register(commands::kill::command_handler());
         dispatcher.register(commands::give::command_handler());
+        dispatcher.register(commands::pardon_ip::command_handler());
         dispatcher.register(commands::seed::command_handler());
         dispatcher.register(commands::stop::command_handler());
         dispatcher.register(commands::summon::command_handler());
