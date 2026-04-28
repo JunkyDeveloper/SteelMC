@@ -46,7 +46,7 @@ pub use game_profile::{GameProfile, GameProfileAction};
 use message_chain::SignedMessageChain;
 use profile_key::RemoteChatSession;
 use std::{
-    net::SocketAddr,
+    net::IpAddr,
     sync::{
         Arc, Weak,
         atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU32, Ordering},

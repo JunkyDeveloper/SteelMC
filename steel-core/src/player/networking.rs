@@ -1,6 +1,6 @@
 //! This module contains the `JavaConnection` struct, which is used to represent a connection to a Java client.
 use std::io::Cursor;
-use std::net::SocketAddr;
+use std::net::IpAddr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -93,7 +93,7 @@ pub struct JavaConnection {
     compression: Option<CompressionInfo>,
     network_writer: Arc<AsyncMutex<TCPNetworkEncoder<BufWriter<OwnedWriteHalf>>>>,
     id: u64,
-    remote_address: SocketAddr,
+    remote_address: IpAddr,
     player: Weak<Player>,
     keep_alive_tracker: SyncMutex<KeepAliveTracker>,
     latency: SyncMutex<u32>,
@@ -107,7 +107,7 @@ impl JavaConnection {
         compression: Option<CompressionInfo>,
         network_writer: Arc<AsyncMutex<TCPNetworkEncoder<BufWriter<OwnedWriteHalf>>>>,
         id: u64,
-        remote_address: SocketAddr,
+        remote_address: IpAddr,
         player: Weak<Player>,
     ) -> Self {
         Self {
@@ -496,7 +496,7 @@ impl NetworkConnection for JavaConnection {
         self.cancel_token.is_cancelled()
     }
 
-    fn remote_address(&self) -> SocketAddr {
+    fn ip_address(&self) -> IpAddr {
         self.remote_address
     }
 }

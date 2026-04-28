@@ -77,7 +77,7 @@ fn ban_ip_player(
     for player in &players {
         // And apply the ban
         if !IP_ACCESS_POLICY.ban_ip(
-            player.connection.remote_address().ip(),
+            player.connection.ip_address(),
             final_sender.clone(),
             real_reason.clone(),
             None,
@@ -135,7 +135,7 @@ fn ban_ip_player_by_ip(
     }
     let mut player_list: Vec<Arc<Player>> = Vec::new();
     for player in ctx.server.get_players() {
-        if player.connection.remote_address().ip() == valid_ip {
+        if player.connection.ip_address() == valid_ip {
             // Disconnect the player with the right message
             player.connection.disconnect_with_reason(
                 MULTIPLAYER_DISCONNECT_BANNED_IP_REASON
