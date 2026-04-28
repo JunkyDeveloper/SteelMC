@@ -14,6 +14,8 @@ use std::path::Path;
 use std::sync::LazyLock;
 use std::{fs, io};
 use steel_utils::locks::SyncRwLock;
+use steel_utils::translations::MULTIPLAYER_DISCONNECT_BANNED_IP_REASON;
+use text_components::TextComponent;
 
 const DATETIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S %z";
 const FOREVER: &str = "forever";
@@ -373,13 +375,17 @@ impl IpAccessPolicy {
     }
 
     /// Returns the ban reason for `ip`, or `None` if the IP is not in the ban list.
-    pub fn get_banned_reason(&self, ip: &IpAddr) -> Option<String> {
+    pub fn get_banned_reason(&self, ip: &IpAddr) -> Option<TextComponent> {
         let state = self.state.read();
         state
             .banned_ips_config_all
             .iter()
             .find(|b| b.ip == *ip)
-            .map(|b| b.reason.clone())
+            .map(|b| {
+                MULTIPLAYER_DISCONNECT_BANNED_IP_REASON
+                    .message([TextComponent::plain(b.reason.clone())])
+                    .component()
+            })
     }
 
     /// Persists the merged ban/blacklist file and the whitelist.

@@ -2,8 +2,8 @@
 //!
 //! The trait is object-safe to allow using `dyn PlayerConnection` for both real network
 //! connections (`JavaConnection`) and test connections (`FlintConnection`).
-
 use enum_dispatch::enum_dispatch;
+use std::net::SocketAddr;
 use steel_protocol::packet_traits::{CompressionInfo, EncodedPacket};
 use text_components::TextComponent;
 
@@ -52,6 +52,9 @@ pub trait NetworkConnection: Send + Sync {
 
     /// Returns whether the connection is closed.
     fn closed(&self) -> bool;
+
+    /// Returns the remote socket address of the connection.
+    fn remote_address(&self) -> SocketAddr;
 }
 
 impl NetworkConnection for Box<dyn NetworkConnection> {
@@ -85,5 +88,9 @@ impl NetworkConnection for Box<dyn NetworkConnection> {
 
     fn closed(&self) -> bool {
         (**self).closed()
+    }
+
+    fn remote_address(&self) -> SocketAddr {
+        (**self).remote_address()
     }
 }

@@ -30,6 +30,7 @@ use steel_protocol::{
 use steel_registry::packets::{
     CURRENT_MC_PROTOCOL, config, handshake, login as login_packets, status,
 };
+use steel_utils::translations::MULTIPLAYER_DISCONNECT_BANNED_IP_REASON;
 use steel_utils::{MC_VERSION, locks::AsyncMutex, translations};
 use text_components::{
     TextComponent, content::Resolvable, custom::CustomData, resolving::TextResolutor,
@@ -421,11 +422,15 @@ impl JavaTcpClient {
     pub async fn handle_login(&self, packet: RawPacket) -> Result<(), PacketError> {
         let data = &mut Cursor::new(packet.payload.as_slice());
         if IP_ACCESS_POLICY.is_banned(&self.address.ip()) {
-            self.kick(TextComponent::from(
+            self.kick(
                 IP_ACCESS_POLICY
                     .get_banned_reason(&self.address.ip())
-                    .unwrap_or("You are banned".to_string()),
-            ))
+                    .unwrap_or(
+                        MULTIPLAYER_DISCONNECT_BANNED_IP_REASON
+                            .message([TextComponent::plain("Banned by an operator")])
+                            .component(),
+                    ),
+            )
             .await;
         }
         match packet.id {

@@ -1,4 +1,5 @@
 //! This module contains the command building structs.
+pub mod ban_ip;
 pub mod clear;
 pub mod difficulty;
 pub mod enchant;
