@@ -243,10 +243,17 @@ impl IpAccessPolicy {
         state.banned_ips.remove(ip);
         state.banned_ips_config_all.retain(|b| b.ip != *ip);
     }
+
     /// Removes `ip` from the blacklist. Persisted only when [`save_config`](Self::save_config) runs.
     pub fn un_blacklist_ip(&self, ip: &IpAddr) {
         let mut state = self.state.write();
         state.blacklisted_ips.remove(ip);
+    }
+
+    /// Removes `ip` from the blacklist. Persisted only when [`save_config`](Self::save_config) runs.
+    pub fn blacklist_ip(&self, ip: &IpAddr) {
+        let mut state = self.state.write();
+        state.blacklisted_ips.insert(*ip);
     }
 
     /// Returns a snapshot of all currently whitelisted IPs.
