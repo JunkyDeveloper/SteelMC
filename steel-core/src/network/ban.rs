@@ -14,8 +14,10 @@ use std::path::Path;
 use std::sync::LazyLock;
 use std::{fs, io};
 use steel_utils::locks::SyncRwLock;
-use steel_utils::translations::MULTIPLAYER_DISCONNECT_BANNED_IP_REASON;
-use text_components::TextComponent;
+use steel_utils::translations::{
+    MULTIPLAYER_DISCONNECT_BANNED_IP_EXPIRATION, MULTIPLAYER_DISCONNECT_BANNED_IP_REASON,
+};
+use text_components::{Modifier, TextComponent};
 
 const DATETIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S %z";
 const FOREVER: &str = "forever";
@@ -397,6 +399,10 @@ impl IpAccessPolicy {
                 MULTIPLAYER_DISCONNECT_BANNED_IP_REASON
                     .message([b.reason.clone()])
                     .component()
+                    .add_child(
+                        MULTIPLAYER_DISCONNECT_BANNED_IP_EXPIRATION.message([b
+                            .expires.map_or_else(|| "Never".to_string(), |date| date.format(DATETIME_FORMAT).to_string())]),
+                    )
             })
     }
 

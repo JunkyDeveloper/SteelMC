@@ -3,6 +3,7 @@
 use std::net::IpAddr;
 use std::sync::Arc;
 
+use crate::command::arguments::duration::DurationArgument;
 use crate::command::arguments::ip::IpArgument;
 use crate::command::arguments::text_component::TextComponentArgument;
 use crate::command::sender::CommandSender;
@@ -32,30 +33,74 @@ pub fn command_handler() -> impl CommandHandlerDyn {
         "minecraft:command.banip",
     )
     .then(
+        //Players
         argument("targets", PlayerArgument::multiple())
             .executes(
                 |((), targets): ((), Vec<Arc<Player>>), ctx: &mut CommandContext| {
-                    ban_ip_player(&mut ctx.sender, targets, None)
+                    ban_ip_player(&mut ctx.sender, targets, None, None)
                 },
             )
+            // Player + duration
+            .then(
+                argument("duration", DurationArgument)
+                    .executes(
+                        |(((), targets), duration): (((), Vec<Arc<Player>>), i64),
+                         ctx: &mut CommandContext| {
+                            ban_ip_player(&mut ctx.sender, targets, None, Some(duration))
+                        },
+                    )
+                    // Player + duration + reason
+                    .then(argument("reason", TextComponentArgument).executes(
+                        |((((), targets), duration), reason): (
+                            (((), Vec<Arc<Player>>), i64),
+                            TextComponent,
+                        ),
+                         ctx: &mut CommandContext| {
+                            ban_ip_player(&mut ctx.sender, targets, Some(reason), Some(duration))
+                        },
+                    )),
+            )
+            // Player + reason
             .then(argument("reason", TextComponentArgument).executes(
                 |(((), targets), reason): (((), Vec<Arc<Player>>), TextComponent),
                  ctx: &mut CommandContext| {
-                    ban_ip_player(&mut ctx.sender, targets, Some(reason))
+                    ban_ip_player(&mut ctx.sender, targets, Some(reason), None)
                 },
             )),
     )
     .then(
+        // IP
         argument("ip", IpArgument)
             .executes(|((), ip): ((), Option<IpAddr>), ctx: &mut CommandContext| {
-                ban_ip_player_by_ip(ctx, ip, None)
+                ban_ip_player_by_ip(ctx, ip, None, None)
             })
+            // IP + reason
             .then(argument("reason", TextComponentArgument).executes(
                 |(((), ip), reason): (((), Option<IpAddr>), TextComponent),
                  ctx: &mut CommandContext| {
-                    ban_ip_player_by_ip(ctx, ip, Some(reason))
+                    ban_ip_player_by_ip(ctx, ip, Some(reason), None)
                 },
-            )),
+            ))
+            // IP + duration
+            .then(
+                argument("duration", DurationArgument)
+                    .executes(
+                        |(((), targets), duration): (((), Option<IpAddr>), i64),
+                         ctx: &mut CommandContext| {
+                            ban_ip_player_by_ip(ctx, targets, None, Some(duration))
+                        },
+                    ) // IP + duration + reason
+                    // Reason last if later an API like MiniMessage is going to be used
+                    .then(argument("reason", TextComponentArgument).executes(
+                        |((((), targets), duration), reason): (
+                            (((), Option<IpAddr>), i64),
+                            TextComponent,
+                        ),
+                         ctx: &mut CommandContext| {
+                            ban_ip_player_by_ip(ctx, targets, Some(reason), Some(duration))
+                        },
+                    )),
+            ),
     )
 }
 
@@ -67,12 +112,14 @@ fn ban_ip_player(
     sender: &mut CommandSender,
     players: Vec<Arc<Player>>,
     reason: Option<TextComponent>,
+    duration_in_days: Option<i64>,
 ) -> Result<(), CommandError> {
-    let real_reason = reason.unwrap_or(TextComponent::plain("Banned by an operator."));
     let final_sender = sender.get_player().map_or_else(
         || "Server".to_string(),
         |sender| sender.gameprofile.name.clone(),
     );
+    let real_reason = reason.unwrap_or(TextComponent::plain("Banned by an operator."));
+    let duration = duration_in_days.map(|d| chrono::Utc::now() + chrono::Duration::days(d));
 
     for player in &players {
         // And apply the ban
@@ -80,7 +127,7 @@ fn ban_ip_player(
             player.connection.ip_address(),
             final_sender.clone(),
             real_reason.clone(),
-            None,
+            duration,
         ) {
             sender.send_message(&COMMANDS_BANIP_FAILED.msg().component());
             continue;
@@ -115,20 +162,27 @@ fn ban_ip_player_by_ip(
     ctx: &mut CommandContext,
     ip: Option<IpAddr>,
     reason: Option<TextComponent>,
+    duration_in_days: Option<i64>,
 ) -> Result<(), CommandError> {
-    // Wrong IP = custom Error
-    let valid_ip = ip.ok_or_else(|| {
-        CommandError::CommandFailed(Box::new(COMMANDS_BANIP_INVALID.msg().component()))
-    })?;
 
-    let real_reason = reason.unwrap_or(TextComponent::plain("Banned by an operator."));
+    // Wrong IP = custom Error
     let final_sender = ctx.sender.get_player().map_or_else(
         || "Server".to_string(),
         |sender| sender.gameprofile.name.clone(),
     );
+    let valid_ip = ip.ok_or_else(|| {
+        CommandError::CommandFailed(Box::new(COMMANDS_BANIP_INVALID.msg().component()))
+    })?;
+    let real_reason = reason.unwrap_or(TextComponent::plain("Banned by an operator."));
+    let duration = duration_in_days.map(|d| chrono::Utc::now() + chrono::Duration::days(d));
 
     //BAN IP + verify if the ip is not already banned
-    if !IP_ACCESS_POLICY.ban_ip(valid_ip, final_sender.clone(), real_reason.clone(), None) {
+    if !IP_ACCESS_POLICY.ban_ip(
+        valid_ip,
+        final_sender.clone(),
+        real_reason.clone(),
+        duration,
+    ) {
         ctx.sender
             .send_message(&COMMANDS_BANIP_FAILED.msg().component());
         return Ok(());
