@@ -7,6 +7,7 @@ pub mod entity;
 pub mod float;
 pub mod gamemode;
 pub mod integer;
+pub mod ip;
 pub mod item;
 pub mod player;
 pub mod rotation;
