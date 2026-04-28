@@ -32,18 +32,6 @@ pub fn command_handler() -> impl CommandHandlerDyn {
         "minecraft:command.banip",
     )
     .then(
-        argument("ip", IpArgument)
-            .executes(|((), ip): ((), Option<IpAddr>), ctx: &mut CommandContext| {
-                ban_ip_player_by_ip(ctx, ip, None)
-            })
-            .then(argument("reason", TextComponentArgument).executes(
-                |(((), ip), reason): (((), Option<IpAddr>), TextComponent),
-                 ctx: &mut CommandContext| {
-                    ban_ip_player_by_ip(ctx, ip, Some(reason))
-                },
-            )),
-    )
-    .then(
         argument("targets", PlayerArgument::multiple())
             .executes(
                 |((), targets): ((), Vec<Arc<Player>>), ctx: &mut CommandContext| {
@@ -54,6 +42,18 @@ pub fn command_handler() -> impl CommandHandlerDyn {
                 |(((), targets), reason): (((), Vec<Arc<Player>>), TextComponent),
                  ctx: &mut CommandContext| {
                     ban_ip_player(&mut ctx.sender, targets, Some(reason))
+                },
+            )),
+    )
+    .then(
+        argument("ip", IpArgument)
+            .executes(|((), ip): ((), Option<IpAddr>), ctx: &mut CommandContext| {
+                ban_ip_player_by_ip(ctx, ip, None)
+            })
+            .then(argument("reason", TextComponentArgument).executes(
+                |(((), ip), reason): (((), Option<IpAddr>), TextComponent),
+                 ctx: &mut CommandContext| {
+                    ban_ip_player_by_ip(ctx, ip, Some(reason))
                 },
             )),
     )
