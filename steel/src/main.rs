@@ -9,6 +9,7 @@ use steel::config::{self, LogConfig};
 use steel::logger::CommandLogger;
 use steel::spawn_progress::generate_spawn_chunks;
 use steel::{SERVER, SteelServer, logger::LoggerLayer};
+use steel_core::network::ban::init_ip_access_policy;
 use steel_utils::text::DisplayResolutor;
 use text_components::fmt::set_display_resolutor;
 use tokio::runtime::{Builder, Runtime};
@@ -148,7 +149,7 @@ async fn main_async(chunk_runtime: Arc<Runtime>) {
         }
     };
     let logger = init_tracing(cancel_token.clone(), steel_config.log.clone()).await;
-
+    init_ip_access_policy(&steel_config.server.whitelisted_ips);
     if let Err(error) = run_server(chunk_runtime, cancel_token, &logger, steel_config).await {
         log::error!("Server startup failed: {error}");
     }

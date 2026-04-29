@@ -35,6 +35,7 @@ use health_sync::HealthSyncState;
 pub use message_validator::LastSeenMessagesValidator;
 use movement_state::MovementState;
 pub use signature_cache::{LastSeen, MessageCache};
+use std::net::IpAddr;
 use steel_protocol::{
     packet_traits::{CompressionInfo, EncodedPacket},
     packets::game::CSetExperience,

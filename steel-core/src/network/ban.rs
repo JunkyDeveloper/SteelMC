@@ -3,15 +3,15 @@
 //! Persisted in `config/banned.json`, `config/whitelist.json`, and `config/blacklist.json`.
 //! Access the global manager via [`IP_ACCESS_POLICY`].
 
-use crate::config::STEEL_CONFIG;
 use chrono::{DateTime, Local, Utc};
 use rustc_hash::FxHashSet;
 use serde::de::Error as DeError;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::net::IpAddr;
+use std::ops::Deref;
 use std::path::Path;
-use std::sync::LazyLock;
+use std::sync::OnceLock;
 use std::{fs, io};
 use steel_utils::locks::SyncRwLock;
 use steel_utils::translations::{
@@ -173,16 +173,41 @@ pub struct IpAccessPolicy {
     state: SyncRwLock<IpAccessPolicyState>,
 }
 
-/// Global IP ban manager.
+/// Wrapper for the global IP access policy that implements `Deref`.
+pub struct IpAccessPolicyLock(OnceLock<IpAccessPolicy>);
+
+impl Deref for IpAccessPolicyLock {
+    type Target = IpAccessPolicy;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.get().expect("IP access policy not initialized")
+    }
+}
+
+/// Global IP access policy.
 ///
-/// Auto-initializes on first access by loading `config/whitelist.json` and
-/// `config/bans.json` (the merged ban + blacklist file).
-pub static IP_ACCESS_POLICY: LazyLock<IpAccessPolicy> = LazyLock::new(|| {
-    let manager = IpAccessPolicy::empty();
-    manager.load_whitelisted_ips();
-    manager.load_bans();
-    manager
-});
+/// Populated by [`init_ip_access_policy`] at startup with the whitelist taken
+/// from the server config; bans are loaded from `config/ip-bans.json`.
+pub static IP_ACCESS_POLICY: IpAccessPolicyLock = IpAccessPolicyLock(OnceLock::new());
+
+/// Initializes the global [`IP_ACCESS_POLICY`].
+///
+/// Builds the policy from the provided whitelist and the on-disk ban list.
+/// Should be called once during server startup, before any code path that
+/// accesses [`IP_ACCESS_POLICY`] (e.g. the TCP accept loop).
+///
+/// # Panics
+///
+/// Panics if called more than once.
+pub fn init_ip_access_policy(white_listed_ips: &[IpAddr]) {
+    let policy = IpAccessPolicy::empty();
+    policy.set_whitelist(white_listed_ips);
+    policy.load_bans();
+    assert!(
+        IP_ACCESS_POLICY.0.set(policy).is_ok(),
+        "init_ip_access_policy called more than once"
+    );
+}
 
 impl IpAccessPolicy {
     /// Builds a manager with no entries loaded. Used as the starting point
@@ -356,14 +381,11 @@ impl IpAccessPolicy {
         );
     }
 
-    /// Reloads the whitelist from `config/whitelist.json`, replacing the current set.
-    ///
-    /// Creates the file with `[]` if it does not exist. On parse error,
-    /// logs and keeps the existing in-memory state.
-    pub fn load_whitelisted_ips(&self) {
+    /// Replaces the in-memory whitelist with `ips`.
+    fn set_whitelist(&self, ips: &[IpAddr]) {
         let mut state = self.state.write();
-        state.white_list_ips = STEEL_CONFIG.white_listed_ips.iter().copied().collect();
-        state.has_whitelist = !STEEL_CONFIG.white_listed_ips.is_empty();
+        state.white_list_ips = ips.iter().copied().collect();
+        state.has_whitelist = !ips.is_empty();
     }
 
     /// Whether `ip` may complete the TCP accept stage.

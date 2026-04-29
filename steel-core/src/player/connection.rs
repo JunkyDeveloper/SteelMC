@@ -5,7 +5,6 @@
 use enum_dispatch::enum_dispatch;
 use std::net::IpAddr;
 use steel_protocol::packet_traits::{ClientPacket, CompressionInfo, EncodedPacket};
-use steel_protocol::packet_traits::{CompressionInfo, EncodedPacket};
 use steel_protocol::packets::common::SClientInformation;
 use steel_protocol::packets::game::CSetChunkCacheRadius;
 use steel_protocol::utils::ConnectionProtocol;

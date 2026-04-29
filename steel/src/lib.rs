@@ -20,7 +20,6 @@ pub mod logger;
 /// Spawn chunk generation with optional terminal progress display.
 pub mod spawn_progress;
 
-pub use config::STEEL_CONFIG;
 use steel_core::network::ban;
 use steel_core::network::ban::IP_ACCESS_POLICY;
 

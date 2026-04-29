@@ -5,8 +5,8 @@
 //! (consumed by the server constructor) and a `RuntimeConfig` (stored on `Server`).
 
 use serde::Deserialize;
+use std::net::IpAddr;
 use std::{collections::BTreeMap, fs, path::Path};
-
 use steel_core::config::{CompressionInfo, RuntimeConfig, ServerLinks, WorldsConfig};
 
 #[cfg(feature = "stand-alone")]
@@ -71,6 +71,9 @@ pub struct ServerConfig {
     pub compression: Option<CompressionInfo>,
     /// All settings and configurations for server links.
     pub server_links: Option<ServerLinks>,
+    /// The IP addresses that are allowed to connect to the server.
+    #[serde(default)]
+    pub whitelisted_ips: Vec<IpAddr>,
 }
 
 impl ServerConfig {
