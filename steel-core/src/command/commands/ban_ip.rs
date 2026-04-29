@@ -164,7 +164,6 @@ fn ban_ip_player_by_ip(
     reason: Option<TextComponent>,
     duration_in_days: Option<i64>,
 ) -> Result<(), CommandError> {
-
     // Wrong IP = custom Error
     let final_sender = ctx.sender.get_player().map_or_else(
         || "Server".to_string(),

@@ -384,8 +384,7 @@ impl IpAccessPolicy {
     /// the accept stage.
     pub fn is_banned(&self, ip: &IpAddr) -> bool {
         let state = self.state.read();
-        (state.has_whitelist && !state.white_list_ips.contains(ip))
-            || (!state.has_whitelist && state.banned_ips.contains(ip))
+        state.banned_ips.contains(ip)
     }
 
     /// Returns the ban reason for `ip`, or `None` if the IP is not in the ban list.
@@ -399,10 +398,12 @@ impl IpAccessPolicy {
                 MULTIPLAYER_DISCONNECT_BANNED_IP_REASON
                     .message([b.reason.clone()])
                     .component()
-                    .add_child(
-                        MULTIPLAYER_DISCONNECT_BANNED_IP_EXPIRATION.message([b
-                            .expires.map_or_else(|| "Never".to_string(), |date| date.format(DATETIME_FORMAT).to_string())]),
-                    )
+                    .add_child(MULTIPLAYER_DISCONNECT_BANNED_IP_EXPIRATION.message([
+                        b.expires.map_or_else(
+                            || "Never".to_string(),
+                            |date| date.format(DATETIME_FORMAT).to_string(),
+                        ),
+                    ]))
             })
     }
 
