@@ -62,6 +62,26 @@ mod local_datetime_format {
     }
 }
 
+/// Serde adapter that round-trips a [`TextComponent`] through its JSON
+/// representation as a single string. Without this, `toml::to_string_pretty`
+/// renders `reason` as a `[ip_banned.reason]` sub-table, which (with multiple
+/// ban entries) emits the same header twice and fails to reparse.
+mod reason_json_string_format {
+    use serde::de::Error as DeError;
+    use serde::{Deserialize, Deserializer, Serializer};
+    use text_components::TextComponent;
+
+    pub fn serialize<S: Serializer>(reason: &TextComponent, s: S) -> Result<S::Ok, S::Error> {
+        let json = serde_json::to_string(reason).map_err(serde::ser::Error::custom)?;
+        s.serialize_str(&json)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<TextComponent, D::Error> {
+        let s = String::deserialize(d)?;
+        serde_json::from_str(&s).map_err(D::Error::custom)
+    }
+}
+
 /// Serde adapter for an optional expiry timestamp. `None` is encoded as the
 /// literal string `"forever"`, matching vanilla's permanent-ban representation.
 mod local_datetime_or_forever_format {
@@ -104,6 +124,7 @@ pub struct BannedIP {
     #[serde(with = "local_datetime_or_forever_format")]
     pub expires: Option<DateTime<Utc>>,
     /// Operator-provided reason shown to the banned client.
+    #[serde(with = "reason_json_string_format")]
     pub reason: TextComponent,
 }
 
