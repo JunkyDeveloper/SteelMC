@@ -37,6 +37,39 @@ pub fn command_handler() -> impl CommandHandlerDyn {
         "minecraft:command.banip",
     )
     .then(
+        // IP
+        argument("ip", IpArgument)
+            .executes(|((), ip): ((), Option<IpAddr>), ctx: &mut CommandContext| {
+                ban_ip(ctx, ip, None, None)
+            })
+            // IP + duration
+            .then(
+                argument("duration", DurationArgument)
+                    .executes(
+                        |(((), targets), duration): (((), Option<IpAddr>), i64),
+                         ctx: &mut CommandContext| {
+                            ban_ip(ctx, targets, None, Some(duration))
+                        },
+                    ) // IP + duration + reason.
+                    // Reason last because the StringArgument::greedy() consume to the end
+                    .then(argument("reason", StringArgument::greedy()).executes(
+                        |((((), targets), duration), reason): (
+                            (((), Option<IpAddr>), i64),
+                            String,
+                        ),
+                         ctx: &mut CommandContext| {
+                            ban_ip(ctx, targets, Some(reason), Some(duration))
+                        },
+                    )),
+            )
+            // IP + reason
+            .then(argument("reason", StringArgument::greedy()).executes(
+                |(((), ip), reason): (((), Option<IpAddr>), String), ctx: &mut CommandContext| {
+                    ban_ip(ctx, ip, Some(reason), None)
+                },
+            )),
+    )
+    .then(
         //Players
         argument("targets", PlayerArgument::multiple())
             .executes(
@@ -69,39 +102,6 @@ pub fn command_handler() -> impl CommandHandlerDyn {
                 |(((), targets), reason): (((), Vec<Arc<Player>>), String),
                  ctx: &mut CommandContext| {
                     ban_ip_players(&mut ctx.sender, targets, Some(reason), None)
-                },
-            )),
-    )
-    .then(
-        // IP
-        argument("ip", IpArgument)
-            .executes(|((), ip): ((), Option<IpAddr>), ctx: &mut CommandContext| {
-                ban_ip(ctx, ip, None, None)
-            })
-            // IP + duration
-            .then(
-                argument("duration", DurationArgument)
-                    .executes(
-                        |(((), targets), duration): (((), Option<IpAddr>), i64),
-                         ctx: &mut CommandContext| {
-                            ban_ip(ctx, targets, None, Some(duration))
-                        },
-                    ) // IP + duration + reason.
-                    // Reason last because the StringArgument::greedy() consume to the end
-                    .then(argument("reason", StringArgument::greedy()).executes(
-                        |((((), targets), duration), reason): (
-                            (((), Option<IpAddr>), i64),
-                            String,
-                        ),
-                         ctx: &mut CommandContext| {
-                            ban_ip(ctx, targets, Some(reason), Some(duration))
-                        },
-                    )),
-            )
-            // IP + reason
-            .then(argument("reason", StringArgument::greedy()).executes(
-                |(((), ip), reason): (((), Option<IpAddr>), String), ctx: &mut CommandContext| {
-                    ban_ip(ctx, ip, Some(reason), None)
                 },
             )),
     )
