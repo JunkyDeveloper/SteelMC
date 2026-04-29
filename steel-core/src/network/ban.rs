@@ -1,6 +1,10 @@
 //! IP ban / whitelist / blacklist management.
 //!
-//! Persisted in `config/banned.json`, `config/whitelist.json`, and `config/blacklist.json`.
+//! Persisted in `config/ip-bans.toml`. The whitelist is sourced from the
+//! server config (see [`init_ip_access_policy`]). Vanilla's
+//! `config/banned-ips.json` is read once on first startup if no Steel ban
+//! file exists yet.
+//!
 //! Access the global manager via [`IP_ACCESS_POLICY`].
 
 use chrono::{DateTime, Local, Utc};
@@ -26,8 +30,12 @@ const FOREVER: &str = "forever";
 /// string is the user-visible message a vanilla-imported ban falls back to.
 const DEFAULT_BAN_REASON: &str = "Your IP was banned";
 
-const BANS_PATH: &str = "config/ip-bans.json";
+const BANS_PATH: &str = "config/ip-bans.toml";
 const MINECRAFT_BANNED_IP_PATH: &str = "config/banned-ips.json";
+
+/// Empty `ip-bans.toml` written when no ban file exists and no vanilla
+/// import was available. Kept in sync with [`IpBansFile`]'s field names.
+const EMPTY_BANS_TOML: &str = "ip_banned = []\nblacklisted = []\n";
 
 fn format_datetime(dt: &DateTime<Utc>) -> String {
     dt.format(DATETIME_FORMAT).to_string()
@@ -99,9 +107,10 @@ pub struct BannedIP {
     pub reason: TextComponent,
 }
 
-/// On-disk shape of `config/bans.json`. Holds both the metadata-rich ban
-/// list and the bare blacklist. In-memory the blacklist is a `FxHashSet`;
-/// JSON has no native set type so it round-trips through `Vec<IpAddr>`.
+/// On-disk shape of `config/ip-bans.toml`. Holds both the metadata-rich
+/// ban list and the bare blacklist. In-memory the blacklist is a
+/// `FxHashSet`; TOML has no native set type so it round-trips through
+/// `Vec<IpAddr>`.
 #[derive(Serialize, Deserialize, Default)]
 struct IpBansFile {
     ip_banned: Vec<BannedIP>,
@@ -297,20 +306,21 @@ impl IpAccessPolicy {
         self.state.read().blacklisted_ips.iter().copied().collect()
     }
 
-    /// Reloads the ban list and blacklist from `config/bans.json`.
+    /// Reloads the ban list and blacklist from `config/ip-bans.toml`.
     ///
-    /// If `bans.json` is missing, attempts a one-time import from vanilla's
-    /// `config/banned-ips.json` (which only populates the ban list — vanilla
-    /// has no separate blacklist concept). If neither exists, creates an
-    /// empty `bans.json`. On parse error, logs and keeps the in-memory state.
+    /// If `ip-bans.toml` is missing, attempts a one-time import from
+    /// vanilla's `config/banned-ips.json` (which only populates the ban
+    /// list — vanilla has no separate blacklist concept). If neither
+    /// exists, creates an empty `ip-bans.toml`. On parse error, logs and
+    /// keeps the in-memory state.
     pub fn load_bans(&self) {
         let path = Path::new(BANS_PATH);
 
         match fs::read_to_string(path) {
-            Ok(raw) => match serde_json::from_str::<IpBansFile>(&raw) {
+            Ok(raw) => match toml::from_str::<IpBansFile>(&raw) {
                 Ok(file) => self.apply_loaded_bans_file(file, BANS_PATH),
                 Err(e) => {
-                    tracing::error!("{BANS_PATH} invalid JSON, keeping previous state: {}", e);
+                    tracing::error!("{BANS_PATH} invalid TOML, keeping previous state: {}", e);
                 }
             },
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
@@ -320,7 +330,7 @@ impl IpAccessPolicy {
                 tracing::warn!("{BANS_PATH} not found — creating empty file");
                 fs::create_dir_all(path.parent().unwrap_or(Path::new("config")))
                     .unwrap_or_else(|e| tracing::error!("Failed to create config dir: {}", e));
-                fs::write(path, r#"{"ip_banned":[],"blacklisted":[]}"#)
+                fs::write(path, EMPTY_BANS_TOML)
                     .unwrap_or_else(|e| tracing::error!("Failed to create {BANS_PATH}: {}", e));
             }
             Err(e) => tracing::error!("Failed to read {BANS_PATH}: {}", e),
@@ -433,9 +443,10 @@ impl IpAccessPolicy {
             })
     }
 
-    /// Persists the merged ban/blacklist file and the whitelist.
+    /// Persists the merged ban + blacklist file to `config/ip-bans.toml`.
     ///
     /// Called automatically from `SteelServer`'s `Drop` impl on clean shutdown.
+    /// The whitelist is not written here — it lives in the server config.
     ///
     /// # Panics
     /// Panics if serialization or file write fails.
@@ -446,8 +457,7 @@ impl IpAccessPolicy {
             ip_banned: state.banned_ips_config_all.clone(),
             blacklisted: state.blacklisted_ips.iter().copied().collect(),
         };
-        let json_out =
-            serde_json::to_string_pretty(&bans_file).expect("Failed to serialize bans file");
-        fs::write(BANS_PATH, &json_out).expect("Failed to write config/bans.json");
+        let toml_out = toml::to_string_pretty(&bans_file).expect("Failed to serialize bans file");
+        fs::write(BANS_PATH, &toml_out).expect("Failed to write config/ip-bans.toml");
     }
 }
