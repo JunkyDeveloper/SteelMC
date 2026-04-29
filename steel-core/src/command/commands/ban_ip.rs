@@ -7,7 +7,7 @@ use crate::command::arguments::duration::DurationArgument;
 use crate::command::arguments::ip::IpArgument;
 use crate::command::arguments::string::StringArgument;
 use crate::command::sender::CommandSender;
-use crate::network::ban::IP_ACCESS_POLICY;
+use crate::network::ip_access_policy::IP_ACCESS_POLICY;
 use crate::player::connection::NetworkConnection;
 use crate::{
     command::{

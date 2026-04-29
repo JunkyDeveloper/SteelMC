@@ -4,4 +4,4 @@
 //! time, weather, spawn point, and seed. This data is stored in `level.json`
 //! in each world's directory.
 
-pub mod ban;
+pub mod ip_access_policy;

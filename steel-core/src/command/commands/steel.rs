@@ -1,4 +1,10 @@
-//! Steel server commands: /steel tp <targets> <world>
+//! Steel server commands:
+//! /steel tp <targets> <world>
+//! /steel blacklist-ip add <ip>
+//! /steel blacklist-ip remove <ip>
+//! /steel blacklist-ip list
+//! /steel whitelist-ip list
+//! /steel convert banned-ip
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -10,7 +16,7 @@ use crate::command::commands::{CommandHandlerBuilder, CommandHandlerDyn, argumen
 use crate::command::context::CommandContext;
 use crate::command::error::CommandError;
 use crate::entity::SharedEntity;
-use crate::network::ban::IP_ACCESS_POLICY;
+use crate::network::ip_access_policy::IP_ACCESS_POLICY;
 use crate::player::Player;
 use crate::player::connection::NetworkConnection;
 use crate::portal::WorldChangeRequest;

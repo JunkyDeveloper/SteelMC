@@ -11,7 +11,7 @@ use crate::block_entity::init_block_entities;
 use crate::command::CommandDispatcher;
 use crate::config::{ResolvedWorldConfig, RuntimeConfig, WorldsConfig};
 use crate::entity::{SharedEntity, init_entities};
-use crate::network::ban::IP_ACCESS_POLICY;
+use crate::network::ip_access_policy::IP_ACCESS_POLICY;
 
 use crate::chunk_saver::registry::WorldStorageRegistry;
 use crate::level_data::WorldGenerationSettings;

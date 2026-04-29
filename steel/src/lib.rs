@@ -20,8 +20,8 @@ pub mod logger;
 /// Spawn chunk generation with optional terminal progress display.
 pub mod spawn_progress;
 
-use steel_core::network::ban;
-use steel_core::network::ban::IP_ACCESS_POLICY;
+use steel_core::network::ip_access_policy;
+use steel_core::network::ip_access_policy::IP_ACCESS_POLICY;
 
 /// Static access to the server
 pub static SERVER: OnceLock<Arc<Server>> = OnceLock::new();
@@ -149,6 +149,6 @@ impl SteelServer {
 
 impl Drop for SteelServer {
     fn drop(&mut self) {
-        ban::IP_ACCESS_POLICY.save_config();
+        ip_access_policy::IP_ACCESS_POLICY.save_config();
     }
 }

@@ -12,7 +12,7 @@ use std::{
 };
 
 use crossbeam::atomic::AtomicCell;
-use steel_core::network::ban::IP_ACCESS_POLICY;
+use steel_core::network::ip_access_policy::IP_ACCESS_POLICY;
 use steel_core::player::{ClientInformation, GameProfile, PlayerConnection};
 use steel_core::server::Server;
 use steel_protocol::{

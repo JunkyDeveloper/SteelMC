@@ -8,7 +8,7 @@ use crate::command::{
     context::CommandContext,
     error::CommandError,
 };
-use crate::network::ban::IP_ACCESS_POLICY;
+use crate::network::ip_access_policy::IP_ACCESS_POLICY;
 use steel_utils::translations::{
     COMMANDS_PARDONIP_FAILED, COMMANDS_PARDONIP_INVALID, COMMANDS_PARDONIP_SUCCESS,
 };
