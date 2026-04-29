@@ -216,6 +216,7 @@ impl IpAccessPolicy {
     }
 
     /// Adds a ban for `ip`. Persisted only when [`save_config`](Self::save_config) runs.
+    /// Return false is the ip is already banned, else true
     pub fn ban_ip(
         &self,
         ip: IpAddr,
@@ -253,9 +254,14 @@ impl IpAccessPolicy {
     }
 
     /// Adds `ip` from the blacklist. Persisted only when [`save_config`](Self::save_config) runs.
-    pub fn blacklist_ip(&self, ip: &IpAddr) {
+    /// Return false is the ip is already blacklisted, else true
+    pub fn blacklist_ip(&self, ip: &IpAddr) -> bool {
+        if self.is_blacklisted(ip) {
+            return false;
+        }
         let mut state = self.state.write();
         state.blacklisted_ips.insert(*ip);
+        true
     }
 
     /// Returns a snapshot of all currently whitelisted IPs.
@@ -385,6 +391,15 @@ impl IpAccessPolicy {
     pub fn is_banned(&self, ip: &IpAddr) -> bool {
         let state = self.state.read();
         state.banned_ips.contains(ip)
+    }
+
+    /// Whether `ip` can see the server is online in the server list.
+    ///
+    /// If an ip is blacklisted, they cannot see the server online in the server list,
+    /// they also can't connect to the server
+    pub fn is_blacklisted(&self, ip: &IpAddr) -> bool {
+        let state = self.state.read();
+        state.blacklisted_ips.contains(ip)
     }
 
     /// Returns the ban reason for `ip`, or `None` if the IP is not in the ban list.
