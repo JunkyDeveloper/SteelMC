@@ -4,7 +4,7 @@
 //! Access the global manager via [`IP_ACCESS_POLICY`].
 
 use crate::config::STEEL_CONFIG;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
 use rustc_hash::FxHashSet;
 use serde::de::Error as DeError;
 use serde::{Deserialize, Serialize};
@@ -401,7 +401,11 @@ impl IpAccessPolicy {
                     .add_child(MULTIPLAYER_DISCONNECT_BANNED_IP_EXPIRATION.message([
                         b.expires.map_or_else(
                             || "Never".to_string(),
-                            |date| date.format(DATETIME_FORMAT).to_string(),
+                            |date| {
+                                // Use the Local server DateTime instead of UTC (but precise in UTC)
+                                let local_date: DateTime<Local> = date.into();
+                                local_date.format("%Y-%m-%d %H:%M UTC%Z").to_string()
+                            },
                         ),
                     ]))
             })

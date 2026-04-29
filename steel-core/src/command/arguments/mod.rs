@@ -12,6 +12,7 @@ pub mod ip;
 pub mod item;
 pub mod player;
 pub mod rotation;
+pub mod string;
 pub mod text_component;
 pub mod time;
 pub mod vector2;
