@@ -2,6 +2,7 @@
 pub mod ban_ip;
 pub mod clear;
 pub mod difficulty;
+pub mod domain;
 pub mod enchant;
 pub mod execute;
 pub mod fly;
