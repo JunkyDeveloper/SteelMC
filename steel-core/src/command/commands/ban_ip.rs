@@ -71,7 +71,7 @@ pub fn command_handler() -> impl CommandHandlerDyn {
     )
     .then(
         //Players
-        argument("targets", PlayerArgument::multiple())
+        argument("targets", PlayerArgument::one())
             .executes(
                 |((), targets): ((), Vec<Arc<Player>>), ctx: &mut CommandContext| {
                     ban_ip_players(&mut ctx.sender, targets, None, None)

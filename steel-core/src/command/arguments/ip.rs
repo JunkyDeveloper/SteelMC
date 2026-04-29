@@ -18,8 +18,10 @@ impl CommandArgument for IpArgument {
         let s = arg.first()?;
 
         let ip: Option<IpAddr> = s.parse().ok();
-
-        Some((&arg[1..], ip))
+        if ip.is_some() {
+            return Some((&arg[1..], ip));
+        }
+        None
     }
 
     fn usage(&self) -> (ArgumentType, Option<SuggestionType>) {
