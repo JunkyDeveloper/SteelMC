@@ -1,6 +1,8 @@
 //! Handler for the "whitelist-ip" command.
 
-use crate::command::commands::{CommandHandlerBuilder, CommandHandlerDyn, literal};
+use crate::command::commands::{
+    CommandExecutor, CommandHandlerBuilder, CommandHandlerDyn, literal,
+};
 use crate::command::context::CommandContext;
 use crate::command::error::CommandError;
 use crate::network::ip_access_policy::IP_ACCESS_POLICY;
@@ -14,21 +16,25 @@ pub fn command_handler() -> impl CommandHandlerDyn {
         "See what IPs are whitelisted on the server",
         "minecraft:command.whitelistip",
     )
-    .then(literal("list").executes(
-        |(): (), context: &mut CommandContext| -> Result<(), CommandError> {
-            // Send the IPs, but sort it before
-            let mut ips = IP_ACCESS_POLICY.get_whitelist_ips().to_vec();
-            ips.sort();
+    .then(literal("list").executes(WhitelistIpCommandExecutor))
+}
 
-            context.sender.send_message(&TextComponent::plain(format!(
-                "Whitelisted IP: {}",
-                ips.iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<String>>()
-                    .join(", ")
-            )));
+struct WhitelistIpCommandExecutor;
 
-            Ok(())
-        },
-    ))
+impl CommandExecutor<()> for WhitelistIpCommandExecutor {
+    fn execute(&self, _args: (), context: &mut CommandContext) -> Result<(), CommandError> {
+        // Send the IPs, but sort it before
+        let mut ips = IP_ACCESS_POLICY.get_whitelist_ips().to_vec();
+        ips.sort();
+
+        context.sender.send_message(&TextComponent::plain(format!(
+            "Whitelisted IP: {}",
+            ips.iter()
+                .map(ToString::to_string)
+                .collect::<Vec<String>>()
+                .join(", ")
+        )));
+
+        Ok(())
+    }
 }
