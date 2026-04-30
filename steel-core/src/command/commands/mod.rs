@@ -1,5 +1,6 @@
 //! This module contains the command building structs.
 pub mod ban_ip;
+pub mod blacklist_ip;
 pub mod clear;
 pub mod difficulty;
 pub mod domain;
@@ -21,6 +22,7 @@ pub mod tick;
 pub mod time;
 pub mod tp;
 pub mod weather;
+pub mod whitelist_ip;
 pub mod xp;
 
 use std::marker::PhantomData;
