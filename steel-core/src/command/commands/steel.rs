@@ -160,11 +160,13 @@ pub fn command_handler() -> impl CommandHandlerDyn {
             )))
             .then(literal("list").executes(
                 |(): (), context: &mut CommandContext| -> Result<(), CommandError> {
+                    // Send the IPs, but sort it before
+                    let mut ips = IP_ACCESS_POLICY.get_blacklisted_ips().to_vec();
+                    ips.sort();
+
                     context.sender.send_message(&TextComponent::plain(format!(
                         "Blacklisted IP: {}",
-                        IP_ACCESS_POLICY
-                            .get_blacklisted_ips()
-                            .iter()
+                        ips.iter()
                             .map(ToString::to_string)
                             .collect::<Vec<String>>()
                             .join(", ")
@@ -174,4 +176,21 @@ pub fn command_handler() -> impl CommandHandlerDyn {
                 },
             )),
     )
+    .then(literal("whitelist").then(literal("list").executes(
+        |(): (), context: &mut CommandContext| -> Result<(), CommandError> {
+            // Send the IPs, but sort it before
+            let mut ips = IP_ACCESS_POLICY.get_whitelist_ips().to_vec();
+            ips.sort();
+
+            context.sender.send_message(&TextComponent::plain(format!(
+                "Whitelisted IP: {}",
+                ips.iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            )));
+
+            Ok(())
+        },
+    )))
 }
