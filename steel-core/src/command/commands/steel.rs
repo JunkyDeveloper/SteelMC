@@ -26,6 +26,10 @@ use text_components::{Modifier, TextComponent};
 
 /// Handler for the "steel" command group.
 #[must_use]
+#[expect(
+    clippy::too_many_lines,
+    reason = "We call directly the function and not a stuct implementing CommandExecutor"
+)]
 pub fn command_handler() -> impl CommandHandlerDyn {
     CommandHandlerBuilder::new(
         &["steel"],
@@ -126,39 +130,48 @@ pub fn command_handler() -> impl CommandHandlerDyn {
                     Ok(())
                 },
             )))
-            .then(literal("remove").then(
-                argument("ip", IpArgument).executes(
-                    |((), ip): ((), Option<IpAddr>),
-                     context: &mut CommandContext|
-                     -> Result<(), CommandError> {
-                        //Check if the IP is valid
-                        let valid_ip = ip.ok_or_else(|| {
-                            CommandError::CommandFailed(Box::new(
-                                TextComponent::plain("This IP is invalid.").color(Color::Red),
-                            ))
-                        })?;
+            .then(literal("remove").then(argument("ip", IpArgument).executes(
+                |((), ip): ((), Option<IpAddr>),
+                 context: &mut CommandContext|
+                 -> Result<(), CommandError> {
+                    //Check if the IP is valid
+                    let valid_ip = ip.ok_or_else(|| {
+                        CommandError::CommandFailed(Box::new(
+                            TextComponent::plain("This IP is invalid.").color(Color::Red),
+                        ))
+                    })?;
 
-                        //  Check if the IP is blacklisted
-                        if !IP_ACCESS_POLICY.is_blacklisted(&valid_ip) {
-                            context.sender.send_message(
-                                &TextComponent::plain("This IP is not blacklisted.")
-                                    .color(Color::Red),
-                            );
-                        }
+                    //  Check if the IP is blacklisted
+                    if !IP_ACCESS_POLICY.is_blacklisted(&valid_ip) {
+                        context.sender.send_message(
+                            &TextComponent::plain("This IP is not blacklisted.").color(Color::Red),
+                        );
+                    }
 
-                        // Unblacklist
-                        IP_ACCESS_POLICY.un_blacklist_ip(&valid_ip);
+                    // Unblacklist
+                    IP_ACCESS_POLICY.un_blacklist_ip(&valid_ip);
 
-                        // inform the sender
-                        context.sender.send_message(&TextComponent::plain(format!(
-                            "The IP {valid_ip} isn't blacklisted anymore Blacklisted",
-                        )));
-                        Ok(())
-                    },
-                ), /*
-                   .then(literal("list"))
-                   .then(literal("refresh"))
-                   .then(literal("save")*/
+                    // inform the sender
+                    context.sender.send_message(&TextComponent::plain(format!(
+                        "The IP {valid_ip} isn't blacklisted anymore Blacklisted",
+                    )));
+                    Ok(())
+                },
+            )))
+            .then(literal("list").executes(
+                |(): (), context: &mut CommandContext| -> Result<(), CommandError> {
+                    context.sender.send_message(&TextComponent::plain(format!(
+                        "Blacklisted IP: {}",
+                        IP_ACCESS_POLICY
+                            .get_blacklisted_ips()
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<String>>()
+                            .join(", ")
+                    )));
+
+                    Ok(())
+                },
             )),
     )
 }
