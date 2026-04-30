@@ -69,10 +69,11 @@ mod local_datetime_format {
 mod reason_json_string_format {
     use serde::de::Error as DeError;
     use serde::{Deserialize, Deserializer, Serializer};
+    use serde::ser::Error;
     use text_components::TextComponent;
 
     pub fn serialize<S: Serializer>(reason: &TextComponent, s: S) -> Result<S::Ok, S::Error> {
-        let json = serde_json::to_string(reason).map_err(serde::ser::Error::custom)?;
+        let json = serde_json::to_string(reason).map_err(Error::custom)?;
         s.serialize_str(&json)
     }
 

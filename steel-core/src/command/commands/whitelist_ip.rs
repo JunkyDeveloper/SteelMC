@@ -24,7 +24,7 @@ struct WhitelistIpCommandExecutor;
 impl CommandExecutor<()> for WhitelistIpCommandExecutor {
     fn execute(&self, _args: (), context: &mut CommandContext) -> Result<(), CommandError> {
         // Send the IPs, but sort it before
-        let mut ips = IP_ACCESS_POLICY.get_whitelist_ips().to_vec();
+        let mut ips = IP_ACCESS_POLICY.get_whitelist_ips();
         ips.sort();
 
         context.sender.send_message(&TextComponent::plain(format!(
