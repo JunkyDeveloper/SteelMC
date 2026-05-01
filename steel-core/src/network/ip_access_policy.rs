@@ -35,7 +35,7 @@ const MINECRAFT_BANNED_IP_PATH: &str = "config/banned-ips.json";
 
 /// Empty `ip-bans.toml` written when no ban file exists and no vanilla
 /// import was available. Kept in sync with [`IpBansFile`]'s field names.
-const EMPTY_BANS_TOML: &str = "ip_banned = []\nblacklisted = []\n";
+const EMPTY_BANS_TOML: &str = "ip_banned = []\nshadowbanned = []\n";
 
 fn format_datetime(dt: &DateTime<Utc>) -> String {
     dt.format(DATETIME_FORMAT).to_string()
@@ -68,8 +68,8 @@ mod local_datetime_format {
 /// ban entries) emits the same header twice and fails to reparse.
 mod reason_json_string_format {
     use serde::de::Error as DeError;
-    use serde::{Deserialize, Deserializer, Serializer};
     use serde::ser::Error;
+    use serde::{Deserialize, Deserializer, Serializer};
     use text_components::TextComponent;
 
     pub fn serialize<S: Serializer>(reason: &TextComponent, s: S) -> Result<S::Ok, S::Error> {
@@ -136,7 +136,7 @@ pub struct BannedIP {
 #[derive(Serialize, Deserialize, Default)]
 struct IpBansFile {
     ip_banned: Vec<BannedIP>,
-    blacklisted: Vec<IpAddr>,
+    shadowbanned: Vec<IpAddr>,
 }
 
 /// Read-only mirror of [`BannedIP`] used when importing vanilla's
@@ -189,7 +189,7 @@ impl fmt::Display for BannedIP {
 struct IpAccessPolicyState {
     banned_ips_config_all: Vec<BannedIP>,
     banned_ips: FxHashSet<IpAddr>,
-    blacklisted_ips: FxHashSet<IpAddr>,
+    shadowbanned_ips: FxHashSet<IpAddr>,
     white_list_ips: FxHashSet<IpAddr>,
     // less cpu cycles then calling vec.len() every time in loop
     has_whitelist: bool,
@@ -250,7 +250,7 @@ impl IpAccessPolicy {
                 banned_ips: FxHashSet::default(),
                 banned_ips_config_all: Vec::default(),
                 white_list_ips: FxHashSet::default(),
-                blacklisted_ips: FxHashSet::default(),
+                shadowbanned_ips: FxHashSet::default(),
                 has_whitelist: false,
             }),
         }
@@ -303,20 +303,20 @@ impl IpAccessPolicy {
         state.banned_ips_config_all.retain(|b| b.ip != *ip);
     }
 
-    /// Removes `ip` from the blacklist. Persisted only when [`save_config`](Self::save_config) runs.
-    pub fn un_blacklist_ip(&self, ip: &IpAddr) {
+    /// Removes `ip` from the shadowban list. Persisted only when [`save_config`](Self::save_config) runs.
+    pub fn un_shadowban_ip(&self, ip: &IpAddr) {
         let mut state = self.state.write();
-        state.blacklisted_ips.remove(ip);
+        state.shadowbanned_ips.remove(ip);
     }
 
-    /// Adds `ip` from the blacklist. Persisted only when [`save_config`](Self::save_config) runs.
-    /// Return false is the ip is already blacklisted, else true
-    pub fn blacklist_ip(&self, ip: &IpAddr) -> bool {
-        if self.is_blacklisted(ip) {
+    /// Adds `ip` from the shadowban list. Persisted only when [`save_config`](Self::save_config) runs.
+    /// Return false is the ip is already shadowban listed, else true
+    pub fn shadowban_ip(&self, ip: &IpAddr) -> bool {
+        if self.is_shadowbanned(ip) {
             return false;
         }
         let mut state = self.state.write();
-        state.blacklisted_ips.insert(*ip);
+        state.shadowbanned_ips.insert(*ip);
         true
     }
 
@@ -329,16 +329,16 @@ impl IpAccessPolicy {
     pub fn get_banned_ips(&self) -> Vec<BannedIP> {
         self.state.read().banned_ips_config_all.clone()
     }
-    /// Returns a snapshot of all currently blacklisted IPs.
-    pub fn get_blacklisted_ips(&self) -> Vec<IpAddr> {
-        self.state.read().blacklisted_ips.iter().copied().collect()
+    /// Returns a snapshot of all currently shadowban listed IPs.
+    pub fn get_shadowbanned_ips(&self) -> Vec<IpAddr> {
+        self.state.read().shadowbanned_ips.iter().copied().collect()
     }
 
-    /// Reloads the ban list and blacklist from `config/ip-bans.toml`.
+    /// Reloads the ban list and shadowban list from `config/ip-bans.toml`.
     ///
     /// If `ip-bans.toml` is missing, attempts a one-time import from
     /// vanilla's `config/banned-ips.json` (which only populates the ban
-    /// list — vanilla has no separate blacklist concept). If neither
+    /// list — vanilla has no separate shadowban list concept). If neither
     /// exists, creates an empty `ip-bans.toml`. On parse error, logs and
     /// keeps the in-memory state.
     pub fn load_bans(&self) {
@@ -388,7 +388,7 @@ impl IpAccessPolicy {
                 self.apply_loaded_bans_file(
                     IpBansFile {
                         ip_banned: banned,
-                        blacklisted: Vec::new(),
+                        shadowbanned: Vec::new(),
                     },
                     MINECRAFT_BANNED_IP_PATH,
                 );
@@ -404,18 +404,18 @@ impl IpAccessPolicy {
         }
     }
 
-    /// Replaces in-memory ban + blacklist state with `file`, rebuilding the
+    /// Replaces in-memory ban + shadowban list state with `file`, rebuilding the
     /// fast lookup sets. Logs the counts under `source` for operator visibility.
     fn apply_loaded_bans_file(&self, file: IpBansFile, source: &str) {
         let banned_count = file.ip_banned.len();
-        let blacklisted_count = file.blacklisted.len();
+        let blacklisted_count = file.shadowbanned.len();
         let mut state = self.state.write();
         state.banned_ips = file.ip_banned.iter().map(|b| b.ip).collect();
         state.banned_ips_config_all = file.ip_banned;
-        state.blacklisted_ips = file.blacklisted.into_iter().collect();
+        state.shadowbanned_ips = file.shadowbanned.into_iter().collect();
         drop(state);
         tracing::info!(
-            "Loaded {banned_count} banned IPs and {blacklisted_count} blacklisted IPs from {source}"
+            "Loaded {banned_count} banned IPs and {blacklisted_count} shadowban listed IPs from {source}"
         );
     }
 
@@ -429,12 +429,12 @@ impl IpAccessPolicy {
     /// Whether `ip` may complete the TCP accept stage.
     ///
     /// If a whitelist is active, only whitelisted IPs pass. Otherwise, only
-    /// non-blacklisted IPs pass. Used by the accept loop to drop banned
+    /// non-shadowban listed IPs pass. Used by the accept loop to drop banned
     /// connections without going through the login handshake.
     pub fn can_connect(&self, ip: &IpAddr) -> bool {
         let state = self.state.read();
         (state.has_whitelist && state.white_list_ips.contains(ip))
-            || (!state.has_whitelist && !state.blacklisted_ips.contains(ip))
+            || (!state.has_whitelist && !state.shadowbanned_ips.contains(ip))
     }
 
     /// Whether `ip` may join the game.
@@ -449,11 +449,11 @@ impl IpAccessPolicy {
 
     /// Whether `ip` can see the server is online in the server list.
     ///
-    /// If an ip is blacklisted, they cannot see the server online in the server list,
+    /// If an ip is shadowban listed, they cannot see the server online in the server list,
     /// they also can't connect to the server
-    pub fn is_blacklisted(&self, ip: &IpAddr) -> bool {
+    pub fn is_shadowbanned(&self, ip: &IpAddr) -> bool {
         let state = self.state.read();
-        state.blacklisted_ips.contains(ip)
+        state.shadowbanned_ips.contains(ip)
     }
 
     /// Returns the ban reason for `ip`, or `None` if the IP is not in the ban list.
@@ -480,7 +480,7 @@ impl IpAccessPolicy {
             })
     }
 
-    /// Persists the merged ban + blacklist file to `config/ip-bans.toml`.
+    /// Persists the merged ban + shadowban list file to `config/ip-bans.toml`.
     ///
     /// Called automatically from `SteelServer`'s `Drop` impl on clean shutdown.
     /// The whitelist is not written here — it lives in the server config.
@@ -492,7 +492,7 @@ impl IpAccessPolicy {
         let state = self.state.read();
         let bans_file = IpBansFile {
             ip_banned: state.banned_ips_config_all.clone(),
-            blacklisted: state.blacklisted_ips.iter().copied().collect(),
+            shadowbanned: state.shadowbanned_ips.iter().copied().collect(),
         };
         let toml_out = toml::to_string_pretty(&bans_file).expect("Failed to serialize bans file");
         fs::write(BANS_PATH, &toml_out).expect("Failed to write config/ip-bans.toml");

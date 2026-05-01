@@ -1,6 +1,5 @@
 //! This module contains the command building structs.
 pub mod ban_ip;
-pub mod blacklist_ip;
 pub mod clear;
 pub mod difficulty;
 pub mod domain;
@@ -14,6 +13,7 @@ pub mod kick;
 pub mod kill;
 pub mod pardon_ip;
 pub mod seed;
+pub mod shadowban;
 pub mod steel;
 pub mod stop;
 pub mod summon;
