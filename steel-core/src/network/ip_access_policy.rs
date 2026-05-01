@@ -221,6 +221,29 @@ impl Deref for IpAccessPolicyLock {
 /// from the server config; bans are loaded from `config/ip-bans.json`.
 pub static IP_ACCESS_POLICY: IpAccessPolicyLock = IpAccessPolicyLock(OnceLock::new());
 
+/// Reads and parses vanilla's `banned-ips.json` at `path`.
+///
+/// Returns `Ok(None)` when the file does not exist (the common case for a
+/// vanilla-free install). Returns `Err` for IO failures and JSON parse errors.
+pub fn read_vanilla_banned_ips_file(path: &Path) -> io::Result<Option<Vec<BannedIP>>> {
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let vanilla_entries: Vec<VanillaBannedIp> =
+        serde_json::from_str(&raw).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    Ok(Some(
+        vanilla_entries.into_iter().map(BannedIP::from).collect(),
+    ))
+}
+
+/// Path to vanilla's banned-ips file (`config/banned-ips.json`).
+pub const VANILLA_BANNED_IPS_PATH: &str = MINECRAFT_BANNED_IP_PATH;
+
+/// Path to Steel's bans file (`config/ip-bans.toml`).
+pub const STEEL_IP_BANS_PATH: &str = BANS_PATH;
+
 /// Initializes the global [`IP_ACCESS_POLICY`].
 ///
 /// Builds the policy from the provided whitelist and the on-disk ban list.
@@ -369,18 +392,8 @@ impl IpAccessPolicy {
     /// Returns `true` if entries were imported (so the caller skips the
     /// empty-file fallback). Any failure mode logs and returns `false`.
     pub fn try_import_vanilla_bans(&self) -> bool {
-        let raw = match fs::read_to_string(MINECRAFT_BANNED_IP_PATH) {
-            Ok(raw) => raw,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return false,
-            Err(e) => {
-                tracing::error!("Failed to read {MINECRAFT_BANNED_IP_PATH}: {}", e);
-                return false;
-            }
-        };
-        match serde_json::from_str::<Vec<VanillaBannedIp>>(&raw) {
-            Ok(vanilla_entries) => {
-                let banned: Vec<BannedIP> =
-                    vanilla_entries.into_iter().map(BannedIP::from).collect();
+        match read_vanilla_banned_ips_file(Path::new(MINECRAFT_BANNED_IP_PATH)) {
+            Ok(Some(banned)) => {
                 tracing::info!(
                     "{BANS_PATH} not found — importing {} entries from vanilla {MINECRAFT_BANNED_IP_PATH}; will be saved to {BANS_PATH} on next save",
                     banned.len()
@@ -394,14 +407,22 @@ impl IpAccessPolicy {
                 );
                 true
             }
+            Ok(None) => false,
             Err(e) => {
-                tracing::error!(
-                    "{MINECRAFT_BANNED_IP_PATH} invalid JSON, skipping vanilla import: {}",
-                    e
-                );
+                tracing::error!("Failed to import {MINECRAFT_BANNED_IP_PATH}: {}", e);
                 false
             }
         }
+    }
+
+    /// Overwrites the ban list with `bans`, leaving shadowban and whitelist
+    /// state untouched. Used by maintenance tooling that produces a fresh
+    /// ban list (e.g. `./steel convert banned-ip`). Persisted only when
+    /// [`save_config`](Self::save_config) runs.
+    pub fn replace_banned_ips(&self, bans: Vec<BannedIP>) {
+        let mut state = self.state.write();
+        state.banned_ips = bans.iter().map(|b| b.ip).collect();
+        state.banned_ips_config_all = bans;
     }
 
     /// Replaces in-memory ban + shadowban list state with `file`, rebuilding the

@@ -1,10 +1,15 @@
 //! Main entry point for the Steel Minecraft server.
 
+mod cli;
+
 use std::num::NonZero;
 use std::path::Path;
+use std::process::ExitCode;
 use std::sync::Arc;
 use std::thread;
 
+use clap::Parser;
+use cli::Cli;
 use steel::config::{self, LogConfig};
 use steel::logger::CommandLogger;
 use steel::spawn_progress::generate_spawn_chunks;
@@ -109,9 +114,14 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
     clippy::unwrap_used,
     reason = "runtime build failures are fatal and unrecoverable at startup"
 )]
-fn main() {
+fn main() -> ExitCode {
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
+
+    let cli = Cli::parse();
+    if let Some(command) = cli.command {
+        return command.run();
+    }
 
     let half_cpus = (thread::available_parallelism().map_or(4, NonZero::get) / 2).max(2);
 
@@ -135,6 +145,8 @@ fn main() {
 
     drop(main_runtime);
     drop(chunk_runtime);
+
+    ExitCode::SUCCESS
 }
 
 async fn main_async(chunk_runtime: Arc<Runtime>) {

@@ -56,6 +56,9 @@ wincode = { version = "0.5", features = ["derive"] }
 thiserror = "2.0"
 anyhow = "1.0"
 
+# CLI
+clap = { version = "4", features = ["derive"] }
+
 # Proc macros
 proc-macro2 = "1.0"
 quote = "1.0"
