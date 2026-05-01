@@ -1,6 +1,6 @@
-//! IP ban / whitelist / blacklist management.
+//! IP ban / whitelist / shadowban management.
 //!
-//! Persisted in `config/ip-bans.toml`. The whitelist is sourced from the
+//! Persisted in `config/banned-ips.toml`. The whitelist is sourced from the
 //! server config (see [`init_ip_access_policy`]). Vanilla's
 //! `config/banned-ips.json` is read once on first startup if no Steel ban
 //! file exists yet.
@@ -33,7 +33,7 @@ const DEFAULT_BAN_REASON: &str = "Your IP was banned";
 const BANS_PATH: &str = "config/banned-ips.toml";
 const MINECRAFT_BANNED_IP_PATH: &str = "config/banned-ips.json";
 
-/// Empty `ip-bans.toml` written when no ban file exists and no vanilla
+/// Empty `banned-ips.toml` written when no ban file exists and no vanilla
 /// import was available. Kept in sync with [`IpBansFile`]'s field names.
 const EMPTY_BANS_TOML: &str = "ip_banned = []\nshadowbanned = []\n";
 
