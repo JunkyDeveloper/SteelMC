@@ -30,7 +30,7 @@ const FOREVER: &str = "forever";
 /// string is the user-visible message a vanilla-imported ban falls back to.
 const DEFAULT_BAN_REASON: &str = "Your IP was banned";
 
-const BANS_PATH: &str = "config/ip-bans.toml";
+const BANS_PATH: &str = "config/banned-ips.toml";
 const MINECRAFT_BANNED_IP_PATH: &str = "config/banned-ips.json";
 
 /// Empty `ip-bans.toml` written when no ban file exists and no vanilla
