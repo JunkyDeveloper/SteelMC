@@ -30,7 +30,6 @@ impl CommandDispatcher {
     pub fn new() -> Self {
         let dispatcher = CommandDispatcher::new_empty();
         dispatcher.register(commands::ban_ip::command_handler());
-        dispatcher.register(commands::shadowban::command_handler());
         dispatcher.register(commands::clear::command_handler());
         dispatcher.register(commands::domain::command_handler());
         dispatcher.register(commands::enchant::command_handler());
@@ -43,6 +42,7 @@ impl CommandDispatcher {
         dispatcher.register(commands::give::command_handler());
         dispatcher.register(commands::pardon_ip::command_handler());
         dispatcher.register(commands::seed::command_handler());
+        dispatcher.register(commands::shadowban::command_handler());
         dispatcher.register(commands::stop::command_handler());
         dispatcher.register(commands::summon::command_handler());
         dispatcher.register(commands::tellraw::command_handler());
