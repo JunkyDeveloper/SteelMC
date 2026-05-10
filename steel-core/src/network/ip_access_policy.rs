@@ -367,7 +367,7 @@ impl IpAccessPolicy {
                 fs::create_dir_all(path.parent().unwrap_or(Path::new("config")))
                     .unwrap_or_else(|e| tracing::error!("Failed to create config dir: {}", e));
                 fs::write(path, EMPTY_BANS_TOML).unwrap_or_else(|e| {
-                    tracing::error!("Failed to create {STEEL_IP_BANS_PATH}: {}", e)
+                    tracing::error!("Failed to create {STEEL_IP_BANS_PATH}: {}", e);
                 });
             }
             Err(e) => tracing::error!("Failed to read {STEEL_IP_BANS_PATH}: {}", e),
