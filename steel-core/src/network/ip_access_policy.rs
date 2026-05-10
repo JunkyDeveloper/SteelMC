@@ -29,7 +29,8 @@ const FOREVER: &str = "forever";
 /// string is the user-visible message a vanilla-imported ban falls back to.
 const DEFAULT_BAN_REASON: &str = "Your IP was banned";
 
-const BANS_PATH: &str = "config/banned-ips.toml";
+/// Path to Steel's bans file (`config/ip-bans.toml`).
+pub const STEEL_IP_BANS_PATH: &str = "config/banned-ips.toml";
 const MINECRAFT_BANNED_IP_PATH: &str = "config/banned-ips.json";
 
 /// Empty `banned-ips.toml` written when no ban file exists and no vanilla
@@ -225,9 +226,6 @@ pub fn read_vanilla_banned_ips_file(path: &Path) -> io::Result<Option<Vec<Banned
 /// Path to vanilla's banned-ips file (`config/banned-ips.json`).
 pub const VANILLA_BANNED_IPS_PATH: &str = MINECRAFT_BANNED_IP_PATH;
 
-/// Path to Steel's bans file (`config/ip-bans.toml`).
-pub const STEEL_IP_BANS_PATH: &str = BANS_PATH;
-
 /// Initializes the global [`IP_ACCESS_POLICY`].
 ///
 /// Builds the policy from the provided whitelist and the on-disk ban list.
@@ -349,26 +347,30 @@ impl IpAccessPolicy {
     /// exists, creates an empty `ip-bans.toml`. On parse error, logs and
     /// keeps the in-memory state.
     pub fn load_bans(&self) {
-        let path = Path::new(BANS_PATH);
+        let path = Path::new(STEEL_IP_BANS_PATH);
 
         match fs::read_to_string(path) {
             Ok(raw) => match toml::from_str::<IpBansFile>(&raw) {
-                Ok(file) => self.apply_loaded_bans_file(file, BANS_PATH),
+                Ok(file) => self.apply_loaded_bans_file(file, STEEL_IP_BANS_PATH),
                 Err(e) => {
-                    tracing::error!("{BANS_PATH} invalid TOML, keeping previous state: {}", e);
+                    tracing::error!(
+                        "{STEEL_IP_BANS_PATH} invalid TOML, keeping previous state: {}",
+                        e
+                    );
                 }
             },
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 if self.try_import_vanilla_bans() {
                     return;
                 }
-                tracing::warn!("{BANS_PATH} not found — creating empty file");
+                tracing::warn!("{STEEL_IP_BANS_PATH} not found — creating empty file");
                 fs::create_dir_all(path.parent().unwrap_or(Path::new("config")))
                     .unwrap_or_else(|e| tracing::error!("Failed to create config dir: {}", e));
-                fs::write(path, EMPTY_BANS_TOML)
-                    .unwrap_or_else(|e| tracing::error!("Failed to create {BANS_PATH}: {}", e));
+                fs::write(path, EMPTY_BANS_TOML).unwrap_or_else(|e| {
+                    tracing::error!("Failed to create {STEEL_IP_BANS_PATH}: {}", e)
+                });
             }
-            Err(e) => tracing::error!("Failed to read {BANS_PATH}: {}", e),
+            Err(e) => tracing::error!("Failed to read {STEEL_IP_BANS_PATH}: {}", e),
         }
     }
 
@@ -379,7 +381,7 @@ impl IpAccessPolicy {
         match read_vanilla_banned_ips_file(Path::new(MINECRAFT_BANNED_IP_PATH)) {
             Ok(Some(banned)) => {
                 tracing::info!(
-                    "{BANS_PATH} not found — importing {} entries from vanilla {MINECRAFT_BANNED_IP_PATH}; will be saved to {BANS_PATH} on next save",
+                    "{STEEL_IP_BANS_PATH} not found — importing {} entries from vanilla {MINECRAFT_BANNED_IP_PATH}; will be saved to {STEEL_IP_BANS_PATH} on next save",
                     banned.len()
                 );
                 self.apply_loaded_bans_file(
@@ -500,6 +502,6 @@ impl IpAccessPolicy {
             shadowbanned: state.shadowbanned_ips.iter().copied().collect(),
         };
         let toml_out = toml::to_string_pretty(&bans_file).expect("Failed to serialize bans file");
-        fs::write(BANS_PATH, &toml_out).expect("Failed to write config/ip-bans.toml");
+        fs::write(STEEL_IP_BANS_PATH, &toml_out).expect("Failed to write config/ip-bans.toml");
     }
 }
