@@ -31,6 +31,7 @@ impl CommandDispatcher {
         let dispatcher = CommandDispatcher::new_empty();
         dispatcher.register(commands::ban_ip::command_handler());
         dispatcher.register(commands::clear::command_handler());
+        dispatcher.register(commands::difficulty::command_handler());
         dispatcher.register(commands::domain::command_handler());
         dispatcher.register(commands::enchant::command_handler());
         dispatcher.register(commands::execute::command_handler());
@@ -43,6 +44,7 @@ impl CommandDispatcher {
         dispatcher.register(commands::pardon_ip::command_handler());
         dispatcher.register(commands::seed::command_handler());
         dispatcher.register(commands::shadowban::command_handler());
+        dispatcher.register(commands::steel::command_handler());
         dispatcher.register(commands::stop::command_handler());
         dispatcher.register(commands::summon::command_handler());
         dispatcher.register(commands::tellraw::command_handler());
@@ -51,8 +53,6 @@ impl CommandDispatcher {
         dispatcher.register(commands::tp::command_handler());
         dispatcher.register(commands::weather::command_handler());
         dispatcher.register(commands::whitelist_ip::command_handler());
-        dispatcher.register(commands::difficulty::command_handler());
-        dispatcher.register(commands::steel::command_handler());
         dispatcher.register(commands::xp::command_handler());
         dispatcher
     }
