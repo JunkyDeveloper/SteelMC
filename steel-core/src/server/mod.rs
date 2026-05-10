@@ -653,9 +653,6 @@ impl Server {
 
             if tick_count % BAN_EXPIRY_SWEEP_INTERVAL == 0 {
                 IP_ACCESS_POLICY.expire_bans();
-                for entry in IP_ACCESS_POLICY.get_banned_ips() {
-                    tracing::warn!("{}", entry);
-                }
             }
 
             if should_sprint_this_tick {

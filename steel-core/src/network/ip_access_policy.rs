@@ -11,7 +11,6 @@ use chrono::{DateTime, Local, Utc};
 use rustc_hash::FxHashSet;
 use serde::de::Error as DeError;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use std::net::IpAddr;
 use std::ops::Deref;
 use std::path::Path;
@@ -167,21 +166,6 @@ impl From<VanillaBannedIp> for BannedIP {
                 .filter(|s| !s.to_string().is_empty())
                 .unwrap_or_else(|| TextComponent::plain(DEFAULT_BAN_REASON)),
         }
-    }
-}
-
-// TODO: DELETE ME
-/// Extends vanilla's `commands.banlist.entry` format (`<ip> was banned by
-/// <source>: <reason>`) with the expiry, since this rendering is used for
-/// operator-facing logs where the expiry is the relevant info.
-impl fmt::Display for BannedIP {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} was banned by {} (expires ", self.ip, self.source)?;
-        match self.expires {
-            Some(expires) => write!(f, "{}", expires.format(DATETIME_FORMAT))?,
-            None => f.write_str(FOREVER)?,
-        }
-        write!(f, "): {}", self.reason)
     }
 }
 
