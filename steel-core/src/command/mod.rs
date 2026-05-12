@@ -40,6 +40,7 @@ impl CommandDispatcher {
         dispatcher.register(commands::gamerule::command_handler());
         dispatcher.register(commands::kick::command_handler());
         dispatcher.register(commands::kill::command_handler());
+        dispatcher.register(commands::locate::command_handler());
         dispatcher.register(commands::give::command_handler());
         dispatcher.register(commands::pardon_ip::command_handler());
         dispatcher.register(commands::seed::command_handler());
