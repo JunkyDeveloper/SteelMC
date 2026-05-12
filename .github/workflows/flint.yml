@@ -77,7 +77,7 @@ jobs:
         timeout-minutes: 15
         env:
           TEST_PATH: ${{ github.workspace }}/FlintBenchmark/tests
-          FLINT_VIZ_URL: "https://flint.jonasbauer.org"
+          FLINT_VIZ_URL: "https://flint-viz.jonasbauer.org"
         run: cargo test --profile cicd --lib test_run_flint_selected -- --nocapture
 
       - name: Download baseline
