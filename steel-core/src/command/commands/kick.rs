@@ -51,7 +51,6 @@ fn kick_player(
     players: Vec<Arc<Player>>,
     reason: Option<TextComponent>,
 ) -> Result<(), CommandError> {
-    // no player return commands.kick.owner.failed (vanilla)
     if players.is_empty() {
         sender.send_message(&COMMANDS_KICK_OWNER_FAILED.msg().into());
     }
@@ -59,12 +58,10 @@ fn kick_player(
     let real_reason = reason.unwrap_or(MULTIPLAYER_DISCONNECT_KICKED.msg().component());
 
     for player in players {
-        // First, disconnect the player
         player
             .connection
             .disconnect_with_reason(real_reason.clone());
 
-        // Then inform the sender of the command
         sender.send_message(
             &COMMANDS_KICK_SUCCESS
                 .message([
