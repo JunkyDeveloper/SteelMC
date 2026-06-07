@@ -11,6 +11,7 @@ pub mod gamerule;
 pub mod give;
 pub mod kick;
 pub mod kill;
+pub mod list;
 pub mod locate;
 pub mod pardon_ip;
 pub mod seed;

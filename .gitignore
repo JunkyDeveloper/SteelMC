@@ -13,12 +13,13 @@
 /players
 
 # Misc
-AGENTS.md
+CLAUDE.md
 .env
 /minecraft-src
 
 # Package
 profile.json.gz
+profile.json.syms.json
 *.gz
 *.class
 
