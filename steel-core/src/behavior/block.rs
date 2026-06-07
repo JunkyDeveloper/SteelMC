@@ -1117,13 +1117,6 @@ impl BlockBehaviorRegistry {
         self.behaviors[id].as_ref()
     }
 
-    /// Get all behaviors.
-    #[cfg(feature = "flint")]
-    #[must_use]
-    pub fn get_behaviors(&self) -> &[Box<dyn BlockBehavior>] {
-        &self.behaviors
-    }
-
     /// Gets the behavior for a block by its ID.
     #[must_use]
     pub fn get_behavior_by_id(&self, id: usize) -> Option<&dyn BlockBehavior> {
