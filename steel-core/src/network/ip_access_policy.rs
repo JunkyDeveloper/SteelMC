@@ -130,7 +130,7 @@ pub struct BannedIP {
 }
 
 /// On-disk shape of `config/ip-bans.toml`. Holds both the metadata-rich
-/// ban list and the bare blacklist. In-memory the blacklist is a
+/// ban list and the bare shadowban list. In-memory the shadowban list is a
 /// `FxHashSet`; TOML has no native set type so it round-trips through
 /// `Vec<IpAddr>`.
 #[derive(Serialize, Deserialize, Default)]
@@ -180,7 +180,7 @@ struct IpAccessPolicyState {
     has_whitelist: bool,
 }
 
-/// Thread-safe holder for ban / whitelist / blacklist state.
+/// Thread-safe holder for ban / whitelist / shadowban list state.
 ///
 /// All public methods take `&self`; mutation goes through an internal
 /// `SyncRwLock`. Use the global [`IP_ACCESS_POLICY`] static — there is no reason
