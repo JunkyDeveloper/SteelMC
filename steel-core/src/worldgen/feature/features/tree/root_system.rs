@@ -155,10 +155,7 @@ impl FeatureDecorationRunner {
             );
 
             let state = region.block_state(pos);
-            if registry
-                .blocks
-                .is_in_tag(state.get_block(), &config.root_replaceable)
-            {
+            if Self::block_matches_holder_set(state.get_block(), &config.root_replaceable) {
                 let replacement = Self::sample_block_state_provider(
                     region,
                     registry,

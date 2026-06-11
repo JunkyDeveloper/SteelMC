@@ -884,6 +884,11 @@ impl Registry {
                 }
                 self.validate_placed_feature_ref(&config.default);
             }
+            ConfiguredFeatureKind::WeightedRandomSelector(config) => {
+                for feature in &config.features {
+                    self.validate_placed_feature_ref(&feature.data);
+                }
+            }
             ConfiguredFeatureKind::RootSystem(config) => {
                 self.validate_placed_feature_ref(&config.feature);
             }
@@ -904,6 +909,11 @@ impl Registry {
                 );
             }
             ConfiguredFeatureKind::SimpleRandomSelector(config) => {
+                for feature in &config.features {
+                    self.validate_placed_feature_ref(feature);
+                }
+            }
+            ConfiguredFeatureKind::Sequence(config) => {
                 for feature in &config.features {
                     self.validate_placed_feature_ref(feature);
                 }
