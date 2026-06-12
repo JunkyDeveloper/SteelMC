@@ -72,7 +72,6 @@ impl Debug for ConnectionUpdate {
 }
 
 /// Session id owned by the active server connection listener
-/// this is for telemtry things idk why this is even needed tho whatever aslong as it is 1:1 vanilla i like it!
 #[derive(Default)]
 pub struct ServerConnectionSession {
     session_id: SyncMutex<Option<Uuid>>,
@@ -84,11 +83,6 @@ impl ServerConnectionSession {
     pub fn session_id(&self) -> Uuid {
         let mut session_id = self.session_id.lock();
         *session_id.get_or_insert_with(Uuid::new_v4)
-    }
-
-    /// Clears the listener session id
-    pub fn reset(&self) {
-        *self.session_id.lock() = None;
     }
 }
 
@@ -156,7 +150,7 @@ pub struct JavaTcpClient {
 
     /// The shared server state.
     pub server: Arc<Server>,
-    /// The session id state for the active server connection listener.
+    /// The session id state for the active server connection listener
     pub connection_session: Arc<ServerConnectionSession>,
     /// The challenge sent to the client during login.
     pub challenge: AtomicCell<[u8; 4]>,

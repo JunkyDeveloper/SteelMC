@@ -146,7 +146,6 @@ impl SteelServer {
                 }
             }
         }
-        self.connection_session.reset();
         let _ = server_handle.await;
     }
 }
