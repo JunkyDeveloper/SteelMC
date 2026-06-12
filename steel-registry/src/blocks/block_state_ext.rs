@@ -60,7 +60,10 @@ impl BlockStateExt for BlockStateId {
     }
 
     fn is_air(&self) -> bool {
-        self.get_block().config.is_air
+        let block = self.get_block();
+        block.config.is_air
+            || block == &vanilla_blocks::CAVE_AIR
+            || block == &vanilla_blocks::VOID_AIR
     }
 
     fn has_block_entity(&self) -> bool {
@@ -176,7 +179,7 @@ impl FluidReplaceableExt for BlockStateId {
     fn can_be_replaced_by_fluid(&self, fluid: BlockRef) -> bool {
         let block = self.get_block();
 
-        if block == &vanilla_blocks::AIR {
+        if self.is_air() {
             return true;
         }
 
@@ -228,6 +231,15 @@ mod tests {
             .blocks
             .get_default_state_id(&vanilla_blocks::COBWEB);
         assert!(!cobweb.blocks_motion());
+    }
+
+    #[test]
+    fn vanilla_air_variants_are_air() {
+        init_test_registry();
+
+        assert!(vanilla_blocks::AIR.default_state().is_air());
+        assert!(vanilla_blocks::CAVE_AIR.default_state().is_air());
+        assert!(vanilla_blocks::VOID_AIR.default_state().is_air());
     }
 
     #[test]
