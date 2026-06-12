@@ -152,6 +152,10 @@ impl FeatureDecorationRunner {
         clippy::too_many_arguments,
         reason = "mirrors vanilla SpeleothemClusterFeature.placeColumn state"
     )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "mirrors vanilla SpeleothemClusterFeature.placeColumn flow"
+    )]
     fn place_speleothem_cluster_column(
         region: &mut WorldGenRegion<'_>,
         random: &mut WorldgenRandom,
@@ -305,6 +309,10 @@ impl FeatureDecorationRunner {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "keeps vanilla speleothem growth parameters explicit"
+    )]
     fn grow_speleothem(
         region: &mut WorldGenRegion<'_>,
         start_pos: BlockPos,

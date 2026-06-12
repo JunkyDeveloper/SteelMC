@@ -286,9 +286,11 @@ fn place_template(
             entry.rotations.len()
         );
     };
-    if rotation_count == 0 {
-        panic!("template feature entry {} has no rotations", entry.id);
-    }
+    assert!(
+        rotation_count != 0,
+        "template feature entry {} has no rotations",
+        entry.id
+    );
     let rotation = entry.rotations[context.random.next_i32_bounded(rotation_count) as usize];
     let template = match StructureTemplate::load_vanilla(context.registry, &entry.id) {
         Ok(template) => template,
@@ -346,13 +348,17 @@ fn weighted_index(
     None
 }
 
-fn template_feature_position(origin: BlockPos, rotation: Rotation, size: [i32; 3]) -> BlockPos {
-    let (x_dx, _, x_dz) = rotation.rotate(Direction::West).offset();
-    let (z_dx, _, z_dz) = rotation.rotate(Direction::North).offset();
+const fn template_feature_position(
+    origin: BlockPos,
+    rotation: Rotation,
+    size: [i32; 3],
+) -> BlockPos {
+    let west_offset = rotation.rotate(Direction::West).offset();
+    let north_offset = rotation.rotate(Direction::North).offset();
     origin.offset(
-        x_dx * (size[0] / 2) + z_dx * (size[2] / 2),
+        west_offset.0 * (size[0] / 2) + north_offset.0 * (size[2] / 2),
         0,
-        x_dz * (size[0] / 2) + z_dz * (size[2] / 2),
+        west_offset.2 * (size[0] / 2) + north_offset.2 * (size[2] / 2),
     )
 }
 
