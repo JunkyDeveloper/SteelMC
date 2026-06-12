@@ -448,6 +448,10 @@ impl DensityFunction {
         self.resolve_inner(registry, noises)
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the enum variants are resolved in one exhaustive match"
+    )]
     fn resolve_inner(
         &self,
         registry: &FxHashMap<String, Arc<DensityFunction>>,

@@ -26,15 +26,15 @@ pub struct LoginGameProfile<'a> {
 #[packet_id(Login = C_LOGIN_FINISHED)]
 pub struct CLoginFinished<'a> {
     pub game_profile: LoginGameProfile<'a>,
-    pub session: Uuid,
+    pub session_id: Uuid,
 }
 
 impl<'a> CLoginFinished<'a> {
     #[must_use]
-    pub fn new(game_profile: LoginGameProfile<'a>, session: Uuid) -> Self {
+    pub fn new(game_profile: LoginGameProfile<'a>, session_id: Uuid) -> Self {
         Self {
             game_profile,
-            session,
+            session_id,
         }
     }
 }

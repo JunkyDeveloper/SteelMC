@@ -7,7 +7,7 @@
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::quote;
 use serde::Deserialize;
-use std::mem;
+use std::{mem, slice};
 
 // ── JSON types ──────────────────────────────────────────────────────────────
 
@@ -104,7 +104,7 @@ pub enum SingleOrList<T> {
 impl<T> SingleOrList<T> {
     fn as_slice(&self) -> &[T] {
         match self {
-            Self::Single(value) => std::slice::from_ref(value),
+            Self::Single(value) => slice::from_ref(value),
             Self::List(values) => values,
         }
     }

@@ -582,22 +582,21 @@ fn json_interval_select(
     thresholds: &[f64],
     functions: &[DensityFunctionJson],
 ) -> DensityFunction {
-    if functions.len() < 2 {
-        panic!(
-            "minecraft:interval_select requires at least two functions, got {}",
-            functions.len()
-        );
-    }
-    if thresholds.len() != functions.len().saturating_sub(1) {
-        panic!(
-            "minecraft:interval_select requires exactly one more function than thresholds, got {} thresholds and {} functions",
-            thresholds.len(),
-            functions.len()
-        );
-    }
-    if !thresholds.windows(2).all(|pair| pair[0] <= pair[1]) {
-        panic!("minecraft:interval_select thresholds must be ordered from smallest to largest");
-    }
+    assert!(
+        functions.len() >= 2,
+        "minecraft:interval_select requires at least two functions, got {}",
+        functions.len()
+    );
+    assert!(
+        thresholds.len() == functions.len().saturating_sub(1),
+        "minecraft:interval_select requires exactly one more function than thresholds, got {} thresholds and {} functions",
+        thresholds.len(),
+        functions.len()
+    );
+    assert!(
+        thresholds.windows(2).all(|pair| pair[0] <= pair[1]),
+        "minecraft:interval_select thresholds must be ordered from smallest to largest"
+    );
 
     DensityFunction::IntervalSelect(IntervalSelect {
         input: Arc::new(json_to_df(input)),
