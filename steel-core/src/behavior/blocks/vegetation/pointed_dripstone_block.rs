@@ -192,11 +192,7 @@ impl SpeleothemBlockBehavior {
     ) -> BlockStateId {
         if state.get_value(&BlockStateProperties::WATERLOGGED) {
             let delay = world.fluid_tick_delay(&vanilla_fluids::WATER);
-            let _ = world.schedule_fluid_tick_default(
-                pos,
-                &vanilla_fluids::WATER,
-                delay,
-            );
+            let _ = world.schedule_fluid_tick_default(pos, &vanilla_fluids::WATER, delay);
         }
 
         if direction != Direction::Up && direction != Direction::Down {
