@@ -15,7 +15,7 @@ pub trait LevelReader {
     /// Gets the block state at a position.
     fn get_block_state(&self, pos: BlockPos) -> BlockStateId;
 
-    /// Gets the block entity at a position when this level surface supports it.
+    /// Gets the block entity at a position when this level surface supports it
     #[expect(
         unused_variables,
         reason = "default trait implementation ignores position"
