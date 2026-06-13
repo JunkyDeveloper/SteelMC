@@ -33,12 +33,14 @@ use std::sync::Arc;
 use simdnbt::borrow::BaseNbtCompound as BorrowedNbtCompound;
 use simdnbt::owned::NbtCompound;
 use steel_registry::block_entity_type::BlockEntityTypeRef;
+use steel_registry::game_events::GameEventRef;
 use steel_utils::{BlockPos, BlockStateId, locks::SyncMutex, types::UpdateFlags};
 
 pub use registry::{BLOCK_ENTITIES, BlockEntityFactory, BlockEntityRegistry, init_block_entities};
 pub use storage::BlockEntityStorage;
 
 use crate::inventory::container::Container;
+
 use crate::world::World;
 
 /// World mutations requested by a block entity tick
@@ -56,7 +58,7 @@ pub enum BlockEntityTickAction {
         /// Update flags passed to the world
         flags: UpdateFlags,
         /// Optional game event dispatched after the block update.
-        game_event: Option<(steel_registry::game_events::GameEventRef, BlockStateId)>,
+        game_event: Option<(GameEventRef, BlockStateId)>,
     },
 }
 
