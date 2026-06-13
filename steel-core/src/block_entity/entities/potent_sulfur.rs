@@ -8,6 +8,7 @@ use steel_registry::block_entity_type::BlockEntityTypeRef;
 use steel_registry::blocks::block_state_ext::BlockStateExt as _;
 use steel_registry::blocks::properties::{BlockStateProperties, PotentSulfurState};
 use steel_registry::vanilla_block_entity_types;
+use steel_registry::vanilla_game_events;
 use steel_registry::{
     REGISTRY, TaggedRegistryExt as _, vanilla_blocks, vanilla_entity_type_tags::EntityTypeTag,
 };
@@ -17,7 +18,7 @@ use steel_utils::types::UpdateFlags;
 use steel_utils::{BlockPos, BlockStateId, WorldAabb};
 
 use crate::behavior::BlockStateBehaviorExt as _;
-use crate::block_entity::BlockEntity;
+use crate::block_entity::{BlockEntity, BlockEntityTickAction};
 use crate::fluid::FluidStateExt as _;
 use crate::world::World;
 
@@ -119,9 +120,14 @@ impl PotentSulfurBlockEntity {
         max_height
     }
 
-    fn tick_countdown(world: &Arc<World>, pos: BlockPos, state: BlockStateId, entity: &mut Self) {
+    fn tick_countdown(
+        world: &Arc<World>,
+        pos: BlockPos,
+        state: BlockStateId,
+        entity: &mut Self,
+    ) -> Option<BlockEntityTickAction> {
         let Some(source) = Self::find_source_block(world, pos) else {
-            return;
+            return None;
         };
 
         if entity.waiting_countdown <= 0 {
@@ -148,10 +154,17 @@ impl PotentSulfurBlockEntity {
             } else {
                 PotentSulfurState::Dormant
             };
+            let deactivates = next_state == PotentSulfurState::Dormant;
             let new_state = state.set_value(&BlockStateProperties::POTENT_SULFUR_STATE, next_state);
-            entity.state = new_state;
-            world.set_block(pos, new_state, UpdateFlags::UPDATE_IMMEDIATE);
+            return Some(BlockEntityTickAction::SetBlock {
+                pos,
+                state: new_state,
+                flags: UpdateFlags::UPDATE_ALL,
+                game_event: deactivates.then_some((&vanilla_game_events::BLOCK_DEACTIVATE, state)),
+            });
         }
+
+        None
     }
 
     fn tick_launch(world: &Arc<World>, pos: BlockPos) {
@@ -260,17 +273,18 @@ impl BlockEntity for PotentSulfurBlockEntity {
         true
     }
 
-    fn tick(&mut self, world: &Arc<World>) {
+    fn tick(&mut self, world: &Arc<World>) -> Option<BlockEntityTickAction> {
         let state = world.get_block_state(self.pos);
         let current = state.get_value(&BlockStateProperties::POTENT_SULFUR_STATE);
 
         if current == PotentSulfurState::Dry {
-            return;
+            return None;
         }
 
         let game_time = world.game_time();
 
         // TODO: Nausea effect ticker (WET / DORMANT states, every 10 ticks), requires set_mob_effect on Entity trait
+        // TODO: Add client-only noxious gas and geyser plume tickers once Steel has CLevelParticles/client BE ticker support.
 
         if matches!(
             current,
@@ -279,7 +293,9 @@ impl BlockEntity for PotentSulfurBlockEntity {
         {
             let pos = self.pos;
             let world_clone = Arc::clone(world);
-            Self::tick_countdown(&world_clone, pos, state, self);
+            if let Some(action) = Self::tick_countdown(&world_clone, pos, state, self) {
+                return Some(action);
+            }
         }
 
         if matches!(
@@ -288,5 +304,7 @@ impl BlockEntity for PotentSulfurBlockEntity {
         ) {
             Self::tick_launch(world, self.pos);
         }
+
+        None
     }
 }

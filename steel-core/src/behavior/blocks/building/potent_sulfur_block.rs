@@ -1,19 +1,22 @@
 //! `PotentSulfurBlock` behavior
 
-use std::sync::Weak;
+use std::sync::{Arc, Weak};
 
 use steel_macros::block_behavior;
 use steel_registry::blocks::BlockRef;
 use steel_registry::blocks::block_state_ext::BlockStateExt as _;
 use steel_registry::blocks::properties::{BlockStateProperties, PotentSulfurState};
+use steel_registry::sound_events;
 use steel_registry::vanilla_block_entity_types;
 use steel_registry::vanilla_block_tags::BlockTag;
+use steel_registry::vanilla_game_events;
 use steel_utils::{BlockPos, BlockStateId, Direction};
 
 use crate::behavior::{BlockBehavior, BlockPlaceContext, BlockStateBehaviorExt as _};
+use crate::block_entity::entities::PotentSulfurBlockEntity;
 use crate::block_entity::{BLOCK_ENTITIES, SharedBlockEntity};
 use crate::fluid::FluidStateExt as _;
-use crate::world::{LevelReader, ScheduledTickAccess, World};
+use crate::world::{LevelReader, ScheduledTickAccess, World, game_event_context::GameEventContext};
 
 /// Vanilla `PotentSulfurBlock` behavior
 #[block_behavior]
@@ -57,6 +60,20 @@ impl PotentSulfurBlock {
             .has_tag(&BlockTag::CAUSES_PERIODIC_GEYSER_ERUPTIONS)
             && fluid_ok
         {
+            let is_geyser = matches!(
+                state.get_value(&BlockStateProperties::POTENT_SULFUR_STATE),
+                PotentSulfurState::Dormant | PotentSulfurState::Erupting
+            );
+            if !is_geyser
+                && let Some(block_entity) = world.get_block_entity(pos)
+                && let Some(potent_sulfur) = block_entity
+                    .lock()
+                    .as_any_mut()
+                    .downcast_mut::<PotentSulfurBlockEntity>()
+            {
+                potent_sulfur.reset_countdown();
+            }
+
             if state.get_value(&BlockStateProperties::POTENT_SULFUR_STATE)
                 == PotentSulfurState::Erupting
             {
@@ -95,6 +112,39 @@ impl BlockBehavior for PotentSulfurBlock {
     ) -> BlockStateId {
         Self::valid_state(state, world, pos)
     }
+
+    fn on_place(
+        &self,
+        state: BlockStateId,
+        world: &Arc<World>,
+        pos: BlockPos,
+        _old_state: BlockStateId,
+        _moved_by_piston: bool,
+    ) {
+        let current = state.get_value(&BlockStateProperties::POTENT_SULFUR_STATE);
+        if !matches!(
+            current,
+            PotentSulfurState::Erupting | PotentSulfurState::Continuous
+        ) {
+            return;
+        }
+
+        world.block_event(pos, self.block, 0, 0);
+        let sound = if current == PotentSulfurState::Continuous {
+            &sound_events::BLOCK_POTENT_SULFUR_GEYSER_CONTINUOUS_ERUPTION
+        } else {
+            &sound_events::BLOCK_POTENT_SULFUR_GEYSER_ERUPTION
+        };
+        world.play_block_sound(sound, pos, 1.0, 1.0, None);
+        world.game_event(
+            &vanilla_game_events::BLOCK_ACTIVATE,
+            pos,
+            &GameEventContext::new(None, Some(state)),
+        );
+    }
+
+    // TODO: Implement vanilla animateTick once Steel has client-side ambient tick/particle support:
+    // sulfur bubbles above non-dry states and occasional noxious gas ambient sound.
 
     fn has_block_entity(&self) -> bool {
         true

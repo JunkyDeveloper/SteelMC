@@ -461,7 +461,7 @@ impl ProtoChunk {
             }
         }
 
-        if block_changed && new_behavior.has_block_entity() {
+        if new_behavior.has_block_entity() {
             if let Some(existing) = self.get_block_entity(pos) {
                 existing.lock().set_block_state(state);
                 self.update_block_entity_ticker(&existing);
