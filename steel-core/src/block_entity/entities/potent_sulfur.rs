@@ -1,5 +1,6 @@
 //! `PotentSulfurBlockEntity` for geyser eruption
 
+use std::any::Any;
 use std::sync::{Arc, Weak};
 
 use simdnbt::borrow::{BaseNbtCompound as BorrowedNbtCompound, NbtCompound as NbtCompoundView};
@@ -58,19 +59,20 @@ impl PotentSulfurBlockEntity {
     }
 
     /// Resets the countdown so it reinitializes on the next tick
-    pub fn reset_countdown(&mut self) {
+    pub const fn reset_countdown(&mut self) {
         self.waiting_countdown = -1;
     }
 
     fn geyser_positional_rng(seed: i64, pos: BlockPos) -> Xoroshiro {
         let mut base = Xoroshiro::from_seed((seed ^ GEYSER_SALT) as u64);
-        let splitter = match base.next_positional() {
-            RandomSplitter::Xoroshiro(s) => s,
-            _ => unreachable!("Xoroshiro always produces Xoroshiro splitter"),
+        let RandomSplitter::Xoroshiro(splitter) = base.next_positional() else {
+            unreachable!("Xoroshiro always produces Xoroshiro splitter")
         };
         match splitter.at(pos.x(), pos.y(), pos.z()) {
             RandomSource::Xoroshiro(r) => r,
-            _ => unreachable!("XoroshiroSplitter::at always returns Xoroshiro"),
+            RandomSource::Legacy(_) => {
+                unreachable!("XoroshiroSplitter::at always returns Xoroshiro")
+            }
         }
     }
 
@@ -121,14 +123,12 @@ impl PotentSulfurBlockEntity {
     }
 
     fn tick_countdown(
-        world: &Arc<World>,
+        world: &World,
         pos: BlockPos,
         state: BlockStateId,
         entity: &mut Self,
     ) -> Option<BlockEntityTickAction> {
-        let Some(source) = Self::find_source_block(world, pos) else {
-            return None;
-        };
+        let source = Self::find_source_block(world, pos)?;
 
         if entity.waiting_countdown <= 0 {
             let water_blocks = source.y() - pos.y() - 1;
@@ -155,7 +155,11 @@ impl PotentSulfurBlockEntity {
                 PotentSulfurState::Dormant
             };
             let deactivates = next_state == PotentSulfurState::Dormant;
+            let activates = next_state == PotentSulfurState::Erupting;
             let new_state = state.set_value(&BlockStateProperties::POTENT_SULFUR_STATE, next_state);
+            if activates {
+                entity.eruption_tick = world.game_time();
+            }
             return Some(BlockEntityTickAction::SetBlock {
                 pos,
                 state: new_state,
@@ -177,16 +181,16 @@ impl PotentSulfurBlockEntity {
         let force_height = Self::unobstructed_block_count(world, above, water_blocks);
 
         let aabb = WorldAabb::new(
-            pos.x() as f64,
-            (pos.y() + 1) as f64,
-            pos.z() as f64,
-            (pos.x() + 1) as f64,
-            (pos.y() + 1) as f64 + force_height as f64,
-            (pos.z() + 1) as f64,
+            f64::from(pos.x()),
+            f64::from(pos.y() + 1),
+            f64::from(pos.z()),
+            f64::from(pos.x() + 1),
+            f64::from(pos.y() + 1) + f64::from(force_height),
+            f64::from(pos.z() + 1),
         );
 
         let velocity_threshold =
-            BASE_VELOCITY_THRESHOLD + water_blocks as f64 * VELOCITY_THRESHOLD_SCALE;
+            BASE_VELOCITY_THRESHOLD + f64::from(water_blocks) * VELOCITY_THRESHOLD_SCALE;
 
         for entity in world.get_entities_in_aabb(&aabb) {
             if !entity.is_alive() || entity.is_spectator() {
@@ -218,11 +222,11 @@ impl PotentSulfurBlockEntity {
 }
 
 impl BlockEntity for PotentSulfurBlockEntity {
-    fn as_any(&self) -> &dyn std::any::Any {
+    fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 
@@ -275,6 +279,11 @@ impl BlockEntity for PotentSulfurBlockEntity {
 
     fn tick(&mut self, world: &Arc<World>) -> Option<BlockEntityTickAction> {
         let state = world.get_block_state(self.pos);
+        if state.get_block() != &vanilla_blocks::POTENT_SULFUR {
+            self.set_removed();
+            return None;
+        }
+
         let current = state.get_value(&BlockStateProperties::POTENT_SULFUR_STATE);
 
         if current == PotentSulfurState::Dry {
@@ -284,27 +293,25 @@ impl BlockEntity for PotentSulfurBlockEntity {
         let game_time = world.game_time();
 
         // TODO: Nausea effect ticker (WET / DORMANT states, every 10 ticks), requires set_mob_effect on Entity trait
-        // TODO: Add client-only noxious gas and geyser plume tickers once Steel has CLevelParticles/client BE ticker support.
 
-        if matches!(
-            current,
+        let action = if matches!(
+            &current,
             PotentSulfurState::Dormant | PotentSulfurState::Erupting
         ) && game_time % COUNTDOWN_FREQUENCY_TICKS == 0
         {
             let pos = self.pos;
-            let world_clone = Arc::clone(world);
-            if let Some(action) = Self::tick_countdown(&world_clone, pos, state, self) {
-                return Some(action);
-            }
-        }
+            Self::tick_countdown(world, pos, state, self)
+        } else {
+            None
+        };
 
         if matches!(
-            current,
+            &current,
             PotentSulfurState::Erupting | PotentSulfurState::Continuous
         ) {
             Self::tick_launch(world, self.pos);
         }
 
-        None
+        action
     }
 }
