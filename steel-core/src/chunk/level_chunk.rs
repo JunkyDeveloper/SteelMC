@@ -641,7 +641,7 @@ impl LevelChunk {
             }
 
             // Block entity creation after on_place
-            if new_behavior.has_block_entity() {
+            if block_changed && new_behavior.has_block_entity() {
                 if let Some(existing) = self.get_block_entity(pos) {
                     // Update existing block entity's state
                     existing.lock().set_block_state(state);

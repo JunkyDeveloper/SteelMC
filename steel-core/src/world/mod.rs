@@ -733,6 +733,11 @@ impl World {
         self.level_data.read().data().seed
     }
 
+    /// Gets the current game time
+    pub fn game_time(&self) -> i64 {
+        self.level_data.read().game_time()
+    }
+
     /// Returns this world's vanilla runtime random source.
     #[must_use]
     pub const fn random(&self) -> &SyncMutex<LegacyRandom> {

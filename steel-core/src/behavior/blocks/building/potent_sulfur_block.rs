@@ -1,20 +1,21 @@
 //! `PotentSulfurBlock` behavior
 
+use std::sync::Weak;
+
 use steel_macros::block_behavior;
 use steel_registry::blocks::BlockRef;
 use steel_registry::blocks::block_state_ext::BlockStateExt as _;
 use steel_registry::blocks::properties::{BlockStateProperties, PotentSulfurState};
+use steel_registry::vanilla_block_entity_types;
 use steel_registry::vanilla_block_tags::BlockTag;
 use steel_utils::{BlockPos, BlockStateId, Direction};
 
 use crate::behavior::{BlockBehavior, BlockPlaceContext, BlockStateBehaviorExt as _};
+use crate::block_entity::{BLOCK_ENTITIES, SharedBlockEntity};
 use crate::fluid::FluidStateExt as _;
-use crate::world::{LevelReader, ScheduledTickAccess};
+use crate::world::{LevelReader, ScheduledTickAccess, World};
 
 /// Vanilla `PotentSulfurBlock` behavior
-///
-/// TODO: Implement block-entity-driven eruption ticking once block entity
-/// support is in place
 #[block_behavior]
 pub struct PotentSulfurBlock {
     block: BlockRef,
@@ -56,7 +57,6 @@ impl PotentSulfurBlock {
             .has_tag(&BlockTag::CAUSES_PERIODIC_GEYSER_ERUPTIONS)
             && fluid_ok
         {
-            // Keep ERUPTING if already mideruption otherwise arm it and go brrt
             if state.get_value(&BlockStateProperties::POTENT_SULFUR_STATE)
                 == PotentSulfurState::Erupting
             {
@@ -94,5 +94,23 @@ impl BlockBehavior for PotentSulfurBlock {
         _neighbor_state: BlockStateId,
     ) -> BlockStateId {
         Self::valid_state(state, world, pos)
+    }
+
+    fn has_block_entity(&self) -> bool {
+        true
+    }
+
+    fn new_block_entity(
+        &self,
+        level: Weak<World>,
+        pos: BlockPos,
+        state: BlockStateId,
+    ) -> Option<SharedBlockEntity> {
+        BLOCK_ENTITIES.create(
+            &vanilla_block_entity_types::POTENT_SULFUR,
+            level,
+            pos,
+            state,
+        )
     }
 }
