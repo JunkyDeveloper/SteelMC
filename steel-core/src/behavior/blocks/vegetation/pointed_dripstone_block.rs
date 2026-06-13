@@ -5,7 +5,7 @@ use steel_registry::blocks::block_state_ext::BlockStateExt;
 use steel_registry::blocks::properties::{
     BlockStateProperties, DripstoneThickness, SpeleothemThickness,
 };
-use steel_registry::{vanilla_block_tags::BlockTag, vanilla_damage_types};
+use steel_registry::{vanilla_block_tags::BlockTag, vanilla_damage_types, vanilla_fluids};
 use steel_utils::Direction;
 use steel_utils::{BlockPos, BlockStateId};
 
@@ -52,7 +52,7 @@ impl PointedDripstoneBlock {
         ))
     }
 
-    fn speleothem(&self) -> SpeleothemBlockBehavior {
+    const fn speleothem(&self) -> SpeleothemBlockBehavior {
         SpeleothemBlockBehavior {
             block: self.block,
             kind: SpeleothemKind::PointedDripstone,
@@ -114,7 +114,7 @@ impl SulfurSpikeBlock {
         Self { block }
     }
 
-    fn speleothem(&self) -> SpeleothemBlockBehavior {
+    const fn speleothem(&self) -> SpeleothemBlockBehavior {
         SpeleothemBlockBehavior {
             block: self.block,
             kind: SpeleothemKind::Sulfur,
@@ -191,12 +191,8 @@ impl SpeleothemBlockBehavior {
         _neighbor_state: BlockStateId,
     ) -> BlockStateId {
         if state.get_value(&BlockStateProperties::WATERLOGGED) {
-            let delay = world.fluid_tick_delay(&steel_registry::vanilla_fluids::WATER);
-            let _ = world.schedule_fluid_tick_default(
-                pos,
-                &steel_registry::vanilla_fluids::WATER,
-                delay,
-            );
+            let delay = world.fluid_tick_delay(&vanilla_fluids::WATER);
+            let _ = world.schedule_fluid_tick_default(pos, &vanilla_fluids::WATER, delay);
         }
 
         if direction != Direction::Up && direction != Direction::Down {
