@@ -153,8 +153,8 @@ mod tests {
 
         assert_eq!(
             sound_events::BLOCK_WOODEN_BUTTON_CLICK_ON.packet_holder_id(),
-            1841
+            1851
         );
-        assert_eq!(packet.sound_id, 1841);
+        assert_eq!(packet.sound_id, 1851);
     }
 }

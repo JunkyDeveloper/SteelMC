@@ -1099,7 +1099,7 @@ mod tests {
         let earth = Identifier::vanilla_static("earth");
 
         assert_eq!(
-            registry.particle_types.by_id(21).map(|entry| &entry.key),
+            registry.particle_types.by_id(28).map(|entry| &entry.key),
             Some(&entity_effect)
         );
         assert_eq!(
@@ -1146,11 +1146,11 @@ mod tests {
             Some(&block_activate)
         );
         assert_eq!(
-            registry.game_events.by_id(45).map(|event| &event.key),
+            registry.game_events.by_id(46).map(|event| &event.key),
             Some(&resonate_1)
         );
         assert_eq!(
-            registry.game_events.by_id(54).map(|event| &event.key),
+            registry.game_events.by_id(55).map(|event| &event.key),
             Some(&resonate_10)
         );
     }
