@@ -57,6 +57,8 @@ pub enum SurfaceConditionJson {
     #[serde(rename = "minecraft:noise_threshold")]
     NoiseThreshold {
         noise: String,
+        #[serde(default)]
+        is_3d: bool,
         min_threshold: f64,
         max_threshold: f64,
     },
@@ -287,6 +289,7 @@ impl SurfaceRuleTranspiler {
             }
             SurfaceConditionJson::NoiseThreshold {
                 noise,
+                is_3d,
                 min_threshold,
                 max_threshold,
             } => {
@@ -301,9 +304,14 @@ impl SurfaceRuleTranspiler {
                     };
                 let min_f = *min_threshold;
                 let max_f = *max_threshold;
+                let sample = if *is_3d {
+                    quote! { ctx.condition_noise_3d(#noise_index) }
+                } else {
+                    quote! { ctx.condition_noise(#noise_index) }
+                };
                 quote! {
                     {
-                        let v = ctx.condition_noise(#noise_index);
+                        let v = #sample;
                         v >= #min_f && v <= #max_f
                     }
                 }

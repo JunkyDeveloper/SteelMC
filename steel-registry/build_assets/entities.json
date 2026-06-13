@@ -43885,7 +43885,7 @@
               "serializer": "villager_data",
               "default_value": {
                 "type": "minecraft:plains",
-                "profession": "minecraft:fisherman",
+                "profession": "minecraft:weaponsmith",
                 "level": 1
               }
             },

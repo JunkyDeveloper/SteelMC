@@ -41,6 +41,12 @@ impl FeatureDecorationRunner {
     ) -> bool {
         for y in 0..config.root_column_max_height {
             *tree_pos = tree_pos.above();
+            if region.height_at(HeightmapType::WorldSurfaceWg, tree_pos.x(), tree_pos.z())
+                < tree_pos.y()
+            {
+                return false;
+            }
+
             if !Self::test_block_predicate(
                 region,
                 registry,
@@ -95,6 +101,22 @@ impl FeatureDecorationRunner {
                 config.allowed_vertical_water_for_tree,
             ) {
                 return false;
+            }
+        }
+
+        if config.level_test_distance > 0 {
+            for direction in [
+                Direction::South,
+                Direction::West,
+                Direction::North,
+                Direction::East,
+            ] {
+                let corner_pos = pos.relative_n(direction, config.level_test_distance);
+                let below = region.block_state(corner_pos.below_n(config.max_level_deviation));
+                let above = region.block_state(corner_pos.above_n(config.max_level_deviation));
+                if below.is_air() || !above.is_air() {
+                    return false;
+                }
             }
         }
 
