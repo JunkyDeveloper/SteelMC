@@ -103,10 +103,6 @@ impl ServerConfig {
     }
 }
 
-const fn default_spam_threshold_seconds() -> i32 {
-    -1
-}
-
 /// Logging configuration
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
