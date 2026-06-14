@@ -11,9 +11,10 @@
             "condition": "minecraft:entity_properties",
             "entity": "this",
             "predicate": {
-              "minecraft:type_specific/player": {
+              "type_specific": {
+                "type": "minecraft:player",
                 "looking_at": {
-                  "minecraft:entity_type": "minecraft:ender_dragon"
+                  "type": "minecraft:ender_dragon"
                 }
               }
             }

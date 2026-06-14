@@ -8,8 +8,8 @@
             "condition": "minecraft:entity_properties",
             "entity": "this",
             "predicate": {
-              "minecraft:entity_type": "minecraft:sniffer",
-              "minecraft:flags": {
+              "type": "minecraft:sniffer",
+              "flags": {
                 "is_baby": true
               }
             }

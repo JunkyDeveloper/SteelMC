@@ -2,11 +2,13 @@
   "type": "minecraft:block",
   "pools": [
     {
+      "bonus_rolls": 0.0,
       "entries": [
         {
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "conditions": [
                 {
                   "block": "minecraft:black_candle",
@@ -20,6 +22,7 @@
               "function": "minecraft:set_count"
             },
             {
+              "add": false,
               "conditions": [
                 {
                   "block": "minecraft:black_candle",
@@ -33,6 +36,7 @@
               "function": "minecraft:set_count"
             },
             {
+              "add": false,
               "conditions": [
                 {
                   "block": "minecraft:black_candle",

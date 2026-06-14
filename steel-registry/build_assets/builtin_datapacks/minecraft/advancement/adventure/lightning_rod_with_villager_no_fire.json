@@ -8,7 +8,7 @@
             "condition": "minecraft:entity_properties",
             "entity": "this",
             "predicate": {
-              "minecraft:entity_type": "minecraft:villager"
+              "type": "minecraft:villager"
             }
           }
         ],
@@ -17,12 +17,13 @@
             "condition": "minecraft:entity_properties",
             "entity": "this",
             "predicate": {
-              "minecraft:distance": {
+              "distance": {
                 "absolute": {
                   "max": 30.0
                 }
               },
-              "minecraft:type_specific/lightning": {
+              "type_specific": {
+                "type": "minecraft:lightning",
                 "blocks_set_on_fire": 0
               }
             }

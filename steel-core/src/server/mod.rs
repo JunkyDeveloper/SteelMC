@@ -728,7 +728,6 @@ impl Server {
                 sea_level: world.sea_level,
             },
             enforces_secure_chat: self.config.enforce_secure_chat,
-            online_mode: self.config.online_mode,
         });
     }
 

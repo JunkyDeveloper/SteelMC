@@ -7,7 +7,7 @@
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::quote;
 use serde::Deserialize;
-use std::{mem, slice};
+use std::mem;
 
 // ── JSON types ──────────────────────────────────────────────────────────────
 
@@ -53,12 +53,10 @@ pub enum SurfaceConditionJson {
     #[serde(rename = "minecraft:above_preliminary_surface")]
     AbovePreliminarySurface {},
     #[serde(rename = "minecraft:biome")]
-    BiomeIs { biome_is: SingleOrList<BiomeIdJson> },
+    BiomeIs { biome_is: Vec<BiomeIdJson> },
     #[serde(rename = "minecraft:noise_threshold")]
     NoiseThreshold {
         noise: String,
-        #[serde(default)]
-        is_3d: bool,
         min_threshold: f64,
         max_threshold: f64,
     },
@@ -94,23 +92,6 @@ pub enum SurfaceConditionJson {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(transparent)]
 pub struct BiomeIdJson(String);
-
-/// Vanilla holder-set JSON accepts either a single ID or a list of IDs.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-pub enum SingleOrList<T> {
-    Single(T),
-    List(Vec<T>),
-}
-
-impl<T> SingleOrList<T> {
-    fn as_slice(&self) -> &[T] {
-        match self {
-            Self::Single(value) => slice::from_ref(value),
-            Self::List(values) => values,
-        }
-    }
-}
 
 impl BiomeIdJson {
     pub fn as_str(&self) -> &str {
@@ -260,7 +241,6 @@ impl SurfaceRuleTranspiler {
             SurfaceConditionJson::BiomeIs { biome_is } => {
                 self.uses_biome = true;
                 let checks: Vec<_> = biome_is
-                    .as_slice()
                     .iter()
                     .map(|b| {
                         let biome_name = b
@@ -289,7 +269,6 @@ impl SurfaceRuleTranspiler {
             }
             SurfaceConditionJson::NoiseThreshold {
                 noise,
-                is_3d,
                 min_threshold,
                 max_threshold,
             } => {
@@ -304,14 +283,9 @@ impl SurfaceRuleTranspiler {
                     };
                 let min_f = *min_threshold;
                 let max_f = *max_threshold;
-                let sample = if *is_3d {
-                    quote! { ctx.condition_noise_3d(#noise_index) }
-                } else {
-                    quote! { ctx.condition_noise(#noise_index) }
-                };
                 quote! {
                     {
-                        let v = #sample;
+                        let v = ctx.condition_noise(#noise_index);
                         v >= #min_f && v <= #max_f
                     }
                 }

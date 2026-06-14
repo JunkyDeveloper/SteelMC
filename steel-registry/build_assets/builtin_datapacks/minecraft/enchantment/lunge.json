@@ -60,7 +60,7 @@
                 "condition": "minecraft:entity_properties",
                 "entity": "this",
                 "predicate": {
-                  "minecraft:vehicle": {}
+                  "vehicle": {}
                 }
               }
             },
@@ -68,7 +68,7 @@
               "condition": "minecraft:entity_properties",
               "entity": "this",
               "predicate": {
-                "minecraft:flags": {
+                "flags": {
                   "is_fall_flying": false
                 }
               }
@@ -77,7 +77,7 @@
               "condition": "minecraft:entity_properties",
               "entity": "this",
               "predicate": {
-                "minecraft:flags": {
+                "flags": {
                   "is_in_water": false
                 }
               }
@@ -91,7 +91,9 @@
                     "condition": "minecraft:entity_properties",
                     "entity": "this",
                     "predicate": {
-                      "minecraft:type_specific/player": {}
+                      "type_specific": {
+                        "type": "minecraft:player"
+                      }
                     }
                   }
                 },
@@ -99,7 +101,8 @@
                   "condition": "minecraft:entity_properties",
                   "entity": "this",
                   "predicate": {
-                    "minecraft:type_specific/player": {
+                    "type_specific": {
+                      "type": "minecraft:player",
                       "gamemode": [
                         "creative"
                       ]
@@ -110,7 +113,8 @@
                   "condition": "minecraft:entity_properties",
                   "entity": "this",
                   "predicate": {
-                    "minecraft:type_specific/player": {
+                    "type_specific": {
+                      "type": "minecraft:player",
                       "food": {
                         "level": {
                           "min": 7

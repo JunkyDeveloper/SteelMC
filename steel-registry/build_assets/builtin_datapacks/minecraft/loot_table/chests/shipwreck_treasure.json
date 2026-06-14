@@ -2,11 +2,13 @@
   "type": "minecraft:chest",
   "pools": [
     {
+      "bonus_rolls": 0.0,
       "entries": [
         {
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "count": {
                 "type": "minecraft:uniform",
                 "max": 5.0,
@@ -22,6 +24,7 @@
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "count": {
                 "type": "minecraft:uniform",
                 "max": 5.0,
@@ -37,6 +40,7 @@
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "count": {
                 "type": "minecraft:uniform",
                 "max": 5.0,
@@ -66,11 +70,13 @@
       }
     },
     {
+      "bonus_rolls": 0.0,
       "entries": [
         {
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "count": {
                 "type": "minecraft:uniform",
                 "max": 10.0,
@@ -86,6 +92,7 @@
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "count": {
                 "type": "minecraft:uniform",
                 "max": 10.0,
@@ -101,6 +108,7 @@
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "count": {
                 "type": "minecraft:uniform",
                 "max": 10.0,
@@ -120,6 +128,7 @@
       }
     },
     {
+      "bonus_rolls": 0.0,
       "entries": [
         {
           "type": "minecraft:empty",
@@ -129,6 +138,7 @@
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "count": 2.0,
               "function": "minecraft:set_count"
             }
@@ -139,6 +149,7 @@
       "rolls": 1.0
     },
     {
+      "bonus_rolls": 0.0,
       "entries": [
         {
           "type": "minecraft:empty",
@@ -148,6 +159,7 @@
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "count": 1.0,
               "function": "minecraft:set_count"
             }
@@ -159,6 +171,7 @@
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "count": 1.0,
               "function": "minecraft:set_count"
             }
@@ -170,6 +183,7 @@
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "count": 1.0,
               "function": "minecraft:set_count"
             }
@@ -181,6 +195,7 @@
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "count": 1.0,
               "function": "minecraft:set_count"
             }

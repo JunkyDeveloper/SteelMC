@@ -177,8 +177,9 @@ impl JavaTcpClient {
         }
 
         self.send_bare_packet_now(CLoginFinished::new(
-            profile.into(),
-            self.connection_session.session_id(),
+            profile.id,
+            &profile.name,
+            &profile.properties,
         ))
         .await;
 

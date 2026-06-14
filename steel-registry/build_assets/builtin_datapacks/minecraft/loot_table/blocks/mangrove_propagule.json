@@ -7,6 +7,7 @@
   ],
   "pools": [
     {
+      "bonus_rolls": 0.0,
       "conditions": [
         {
           "block": "minecraft:mangrove_propagule",

@@ -1,3 +1,5 @@
+use steel_registry::vanilla_block_tags::BlockTag;
+
 use super::super::prelude::*;
 use super::super::runner::FeatureDecorationRunner;
 
@@ -23,14 +25,14 @@ impl FeatureDecorationRunner {
 
         let fluid =
             Self::sample_block_state_provider(region, registry, random, &config.fluid, origin);
-        if !Self::lake_boundary_valid(region, registry, config, &grid, origin, fluid) {
+        if !Self::lake_boundary_valid(region, &grid, origin, fluid) {
             return false;
         }
 
-        Self::place_lake_contents(region, registry, config, &grid, origin, fluid);
+        Self::place_lake_contents(region, &grid, origin, fluid);
         Self::place_lake_barrier(region, registry, random, config, &grid, origin);
         if get_fluid_state_from_block(fluid).is_water() {
-            Self::freeze_lake_surface(region, registry, config, biome_zoom_seed, origin);
+            Self::freeze_lake_surface(region, registry, biome_zoom_seed, origin);
         }
 
         true
@@ -60,8 +62,6 @@ impl FeatureDecorationRunner {
 
     fn lake_boundary_valid(
         region: &WorldGenRegion<'_>,
-        registry: &Registry,
-        config: &LakeConfiguration,
         grid: &[bool],
         origin: BlockPos,
         fluid: BlockStateId,
@@ -81,15 +81,6 @@ impl FeatureDecorationRunner {
                     if y < 4 && !state.is_solid() && state != fluid {
                         return false;
                     }
-
-                    if !Self::test_block_predicate(
-                        region,
-                        registry,
-                        &config.can_place_feature,
-                        origin.offset(x, y, z),
-                    ) {
-                        return false;
-                    }
                 }
             }
         }
@@ -99,8 +90,6 @@ impl FeatureDecorationRunner {
 
     fn place_lake_contents(
         region: &mut WorldGenRegion<'_>,
-        registry: &Registry,
-        config: &LakeConfiguration,
         grid: &[bool],
         origin: BlockPos,
         fluid: BlockStateId,
@@ -114,12 +103,7 @@ impl FeatureDecorationRunner {
                     }
 
                     let pos = origin.offset(x, y, z);
-                    if !Self::test_block_predicate(
-                        region,
-                        registry,
-                        &config.can_replace_with_air_or_fluid,
-                        pos,
-                    ) {
+                    if !Self::lake_can_replace_block(region.block_state(pos)) {
                         continue;
                     }
 
@@ -161,12 +145,9 @@ impl FeatureDecorationRunner {
                     let pos = origin.offset(x, y, z);
                     let state = region.block_state(pos);
                     if state.is_solid()
-                        && Self::test_block_predicate(
-                            region,
-                            registry,
-                            &config.can_replace_with_barrier,
-                            pos,
-                        )
+                        && !state
+                            .get_block()
+                            .has_tag(&BlockTag::LAVA_POOL_STONE_CANNOT_REPLACE)
                     {
                         let _ = region.set_block_state(pos, barrier, UpdateFlags::UPDATE_CLIENTS);
                         Self::mark_above_for_postprocessing(region, pos);
@@ -179,7 +160,6 @@ impl FeatureDecorationRunner {
     fn freeze_lake_surface(
         region: &mut WorldGenRegion<'_>,
         registry: &Registry,
-        config: &LakeConfiguration,
         biome_zoom_seed: i64,
         origin: BlockPos,
     ) {
@@ -188,12 +168,7 @@ impl FeatureDecorationRunner {
             for z in 0..16 {
                 let pos = origin.offset(x, 4, z);
                 if Self::should_freeze(region, registry, biome_zoom_seed, pos, false)
-                    && Self::test_block_predicate(
-                        region,
-                        registry,
-                        &config.can_replace_with_air_or_fluid,
-                        pos,
-                    )
+                    && Self::lake_can_replace_block(region.block_state(pos))
                 {
                     let _ = region.set_block_state(pos, ice, UpdateFlags::UPDATE_CLIENTS);
                 }
@@ -201,7 +176,7 @@ impl FeatureDecorationRunner {
         }
     }
 
-    const fn lake_is_boundary(grid: &[bool], x: i32, y: i32, z: i32) -> bool {
+    fn lake_is_boundary(grid: &[bool], x: i32, y: i32, z: i32) -> bool {
         !grid[Self::lake_index(x, y, z)]
             && ((x < 15 && grid[Self::lake_index(x + 1, y, z)])
                 || (x > 0 && grid[Self::lake_index(x - 1, y, z)])
@@ -209,6 +184,12 @@ impl FeatureDecorationRunner {
                 || (z > 0 && grid[Self::lake_index(x, y, z - 1)])
                 || (y < 7 && grid[Self::lake_index(x, y + 1, z)])
                 || (y > 0 && grid[Self::lake_index(x, y - 1, z)]))
+    }
+
+    fn lake_can_replace_block(state: BlockStateId) -> bool {
+        !state
+            .get_block()
+            .has_tag(&BlockTag::FEATURES_CANNOT_REPLACE)
     }
 
     const fn lake_index(x: i32, y: i32, z: i32) -> usize {

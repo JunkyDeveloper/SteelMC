@@ -255,9 +255,6 @@ pub const CONTAINER_LOOT: DataComponentType<()> =
 pub const BREAK_SOUND: DataComponentType<()> =
     DataComponentType::new(Identifier::vanilla_static("break_sound"));
 
-pub const SULFUR_CUBE_CONTENT: DataComponentType<()> =
-    DataComponentType::new(Identifier::vanilla_static("sulfur_cube_content"));
-
 // Entity variant components
 pub const VILLAGER_VARIANT: DataComponentType<()> =
     DataComponentType::new(Identifier::vanilla_static("villager/variant"));
@@ -592,64 +589,62 @@ pub fn register_vanilla_data_components(registry: &mut DataComponentRegistry) {
     register_stub!(registry, CONTAINER_LOOT.key.clone());
     // 80: break_sound
     register_stub!(registry, BREAK_SOUND.key.clone());
-    // 81: sulfur_cube_content
-    register_stub!(registry, SULFUR_CUBE_CONTENT.key.clone());
-    // 82: villager/variant
+    // 81: villager/variant
     register_stub!(registry, VILLAGER_VARIANT.key.clone());
-    // 83: wolf/variant
+    // 82: wolf/variant
     register_stub!(registry, WOLF_VARIANT.key.clone());
-    // 84: wolf/sound_variant
+    // 83: wolf/sound_variant
     register_stub!(registry, WOLF_SOUND_VARIANT.key.clone());
-    // 85: wolf/collar
+    // 84: wolf/collar
     register_stub!(registry, WOLF_COLLAR.key.clone());
-    // 86: fox/variant
+    // 85: fox/variant
     register_stub!(registry, FOX_VARIANT.key.clone());
-    // 87: salmon/size
+    // 86: salmon/size
     register_stub!(registry, SALMON_SIZE.key.clone());
-    // 88: parrot/variant
+    // 87: parrot/variant
     register_stub!(registry, PARROT_VARIANT.key.clone());
-    // 89: tropical_fish/pattern
+    // 88: tropical_fish/pattern
     register_stub!(registry, TROPICAL_FISH_PATTERN.key.clone());
-    // 90: tropical_fish/base_color
+    // 89: tropical_fish/base_color
     register_stub!(registry, TROPICAL_FISH_BASE_COLOR.key.clone());
-    // 91: tropical_fish/pattern_color
+    // 90: tropical_fish/pattern_color
     register_stub!(registry, TROPICAL_FISH_PATTERN_COLOR.key.clone());
-    // 92: mooshroom/variant
+    // 91: mooshroom/variant
     register_stub!(registry, MOOSHROOM_VARIANT.key.clone());
-    // 93: rabbit/variant
+    // 92: rabbit/variant
     register_stub!(registry, RABBIT_VARIANT.key.clone());
-    // 94: pig/variant
+    // 93: pig/variant
     register_stub!(registry, PIG_VARIANT.key.clone());
-    // 95: pig/sound_variant
+    // 94: pig/sound_variant
     register_stub!(registry, PIG_SOUND_VARIANT.key.clone());
-    // 96: cow/variant
+    // 95: cow/variant
     register_stub!(registry, COW_VARIANT.key.clone());
-    // 97: cow/sound_variant
+    // 96: cow/sound_variant
     register_stub!(registry, COW_SOUND_VARIANT.key.clone());
-    // 98: chicken/variant
+    // 97: chicken/variant
     register_stub!(registry, CHICKEN_VARIANT.key.clone());
-    // 99: chicken/sound_variant
+    // 98: chicken/sound_variant
     register_stub!(registry, CHICKEN_SOUND_VARIANT.key.clone());
-    // 100: zombie_nautilus/variant
+    // 99: zombie_nautilus/variant
     register_stub!(registry, ZOMBIE_NAUTILUS_VARIANT.key.clone());
-    // 101: frog/variant
+    // 100: frog/variant
     register_stub!(registry, FROG_VARIANT.key.clone());
-    // 102: horse/variant
+    // 101: horse/variant
     register_stub!(registry, HORSE_VARIANT.key.clone());
-    // 103: painting/variant
+    // 102: painting/variant
     register_stub!(registry, PAINTING_VARIANT.key.clone());
-    // 104: llama/variant
+    // 103: llama/variant
     register_stub!(registry, LLAMA_VARIANT.key.clone());
-    // 105: axolotl/variant
+    // 104: axolotl/variant
     register_stub!(registry, AXOLOTL_VARIANT.key.clone());
-    // 106: cat/variant
+    // 105: cat/variant
     register_stub!(registry, CAT_VARIANT.key.clone());
-    // 107: cat/sound_variant
+    // 106: cat/sound_variant
     register_stub!(registry, CAT_SOUND_VARIANT.key.clone());
-    // 108: cat/collar
+    // 107: cat/collar
     register_stub!(registry, CAT_COLLAR.key.clone());
-    // 109: sheep/color
+    // 108: sheep/color
     register_stub!(registry, SHEEP_COLOR.key.clone());
-    // 110: shulker/color
+    // 109: shulker/color
     register_stub!(registry, SHULKER_COLOR.key.clone());
 }

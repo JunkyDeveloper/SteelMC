@@ -33,7 +33,7 @@
     "condition": "minecraft:entity_properties",
     "entity": "this",
     "predicate": {
-      "minecraft:predicates": {
+      "predicates": {
         "minecraft:villager/variant": "minecraft:taiga"
       }
     }

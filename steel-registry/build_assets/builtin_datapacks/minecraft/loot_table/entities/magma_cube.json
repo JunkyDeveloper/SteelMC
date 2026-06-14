@@ -2,6 +2,7 @@
   "type": "minecraft:entity",
   "pools": [
     {
+      "bonus_rolls": 0.0,
       "entries": [
         {
           "type": "minecraft:item",
@@ -12,7 +13,7 @@
                 "condition": "minecraft:damage_source_properties",
                 "predicate": {
                   "source_entity": {
-                    "minecraft:entity_type": "minecraft:frog"
+                    "type": "minecraft:frog"
                   }
                 }
               }
@@ -21,7 +22,8 @@
               "condition": "minecraft:entity_properties",
               "entity": "this",
               "predicate": {
-                "minecraft:type_specific/cube_mob": {
+                "type_specific": {
+                  "type": "minecraft:slime",
                   "size": {
                     "min": 2
                   }
@@ -31,6 +33,7 @@
           ],
           "functions": [
             {
+              "add": false,
               "count": {
                 "type": "minecraft:uniform",
                 "max": 1.0,
@@ -57,16 +60,17 @@
               "condition": "minecraft:damage_source_properties",
               "predicate": {
                 "source_entity": {
-                  "minecraft:components": {
+                  "type": "minecraft:frog",
+                  "components": {
                     "minecraft:frog/variant": "minecraft:warm"
-                  },
-                  "minecraft:entity_type": "minecraft:frog"
+                  }
                 }
               }
             }
           ],
           "functions": [
             {
+              "add": false,
               "count": 1.0,
               "function": "minecraft:set_count"
             }
@@ -80,16 +84,17 @@
               "condition": "minecraft:damage_source_properties",
               "predicate": {
                 "source_entity": {
-                  "minecraft:components": {
+                  "type": "minecraft:frog",
+                  "components": {
                     "minecraft:frog/variant": "minecraft:cold"
-                  },
-                  "minecraft:entity_type": "minecraft:frog"
+                  }
                 }
               }
             }
           ],
           "functions": [
             {
+              "add": false,
               "count": 1.0,
               "function": "minecraft:set_count"
             }
@@ -103,16 +108,17 @@
               "condition": "minecraft:damage_source_properties",
               "predicate": {
                 "source_entity": {
-                  "minecraft:components": {
+                  "type": "minecraft:frog",
+                  "components": {
                     "minecraft:frog/variant": "minecraft:temperate"
-                  },
-                  "minecraft:entity_type": "minecraft:frog"
+                  }
                 }
               }
             }
           ],
           "functions": [
             {
+              "add": false,
               "count": 1.0,
               "function": "minecraft:set_count"
             }

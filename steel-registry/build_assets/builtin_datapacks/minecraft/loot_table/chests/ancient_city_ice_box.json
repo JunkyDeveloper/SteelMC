@@ -2,6 +2,7 @@
   "type": "minecraft:chest",
   "pools": [
     {
+      "bonus_rolls": 0.0,
       "entries": [
         {
           "type": "minecraft:item",
@@ -28,6 +29,7 @@
               "function": "minecraft:set_stew_effect"
             },
             {
+              "add": false,
               "count": {
                 "type": "minecraft:uniform",
                 "max": 6.0,
@@ -42,6 +44,7 @@
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "count": {
                 "type": "minecraft:uniform",
                 "max": 10.0,
@@ -56,6 +59,7 @@
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "count": {
                 "type": "minecraft:uniform",
                 "max": 10.0,
@@ -70,6 +74,7 @@
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "count": {
                 "type": "minecraft:uniform",
                 "max": 6.0,
@@ -85,6 +90,7 @@
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "count": {
                 "type": "minecraft:uniform",
                 "max": 6.0,

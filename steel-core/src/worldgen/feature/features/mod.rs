@@ -35,7 +35,6 @@ mod sculk_patch;
 mod sea_pickle;
 mod seagrass;
 mod simple_block;
-mod speleothem;
 mod spike;
 mod spring;
 mod tree;

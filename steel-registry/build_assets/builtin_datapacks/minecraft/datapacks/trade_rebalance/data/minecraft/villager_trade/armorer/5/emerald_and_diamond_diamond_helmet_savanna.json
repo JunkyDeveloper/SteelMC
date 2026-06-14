@@ -5,6 +5,7 @@
   },
   "given_item_modifiers": [
     {
+      "add": false,
       "enchantments": {
         "minecraft:binding_curse": 1.0
       },
@@ -35,7 +36,7 @@
     "condition": "minecraft:entity_properties",
     "entity": "this",
     "predicate": {
-      "minecraft:predicates": {
+      "predicates": {
         "minecraft:villager/variant": "minecraft:savanna"
       }
     }

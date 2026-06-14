@@ -23,7 +23,8 @@ use steel_utils::{
 
 use steel_utils::locks::SyncMutex;
 
-use crate::block_entity::{BlockEntityStorage, BlockEntityTickAction, SharedBlockEntity};
+use crate::behavior::{BLOCK_BEHAVIORS, BlockStateBehaviorExt, FLUID_BEHAVIORS};
+use crate::block_entity::{BlockEntityStorage, SharedBlockEntity};
 use crate::chunk::{
     heightmap::{ChunkHeightmaps, HeightmapType},
     proto_chunk::ProtoChunk,
@@ -32,10 +33,6 @@ use crate::chunk::{
 use crate::entity::SharedEntity;
 use crate::world::World;
 use crate::world::tick_scheduler::{BlockTick, BlockTickList, FluidTick, FluidTickList};
-use crate::{
-    behavior::{BLOCK_BEHAVIORS, BlockStateBehaviorExt, FLUID_BEHAVIORS},
-    world::game_event_context::GameEventContext,
-};
 use steel_worldgen::structure::{StructureReferenceMap, StructureStartMap};
 
 fn empty_postprocessing(height: i32) -> Box<[Vec<u16>]> {
@@ -507,33 +504,11 @@ impl LevelChunk {
 
         // Tick each entity
         for entity in entities {
-            let action = {
-                let mut guard = entity.lock();
-                if guard.is_removed() {
-                    continue;
-                }
-                guard.tick(&world)
-            };
-
-            if let Some(action) = action {
-                match action {
-                    BlockEntityTickAction::SetBlock {
-                        pos,
-                        state,
-                        flags,
-                        game_event,
-                    } => {
-                        world.set_block(pos, state, flags);
-                        if let Some((event, event_state)) = game_event {
-                            world.game_event(
-                                event,
-                                pos,
-                                &GameEventContext::new(None, Some(event_state)),
-                            );
-                        }
-                    }
-                }
+            let mut guard = entity.lock();
+            if guard.is_removed() {
+                continue;
             }
+            guard.tick(&world);
         }
 
         // Clean up removed entities from the ticking list

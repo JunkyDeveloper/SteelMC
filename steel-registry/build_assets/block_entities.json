@@ -25,6 +25,7 @@
     "end_gateway",
     "command_block",
     "shulker_box",
+    "bed",
     "conduit",
     "barrel",
     "smoker",
@@ -47,7 +48,6 @@
     "vault",
     "test_block",
     "test_instance_block",
-    "copper_golem_statue",
-    "potent_sulfur"
+    "copper_golem_statue"
   ]
 }

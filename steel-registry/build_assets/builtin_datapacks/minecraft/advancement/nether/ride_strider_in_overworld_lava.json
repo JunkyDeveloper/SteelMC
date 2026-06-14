@@ -13,11 +13,11 @@
             "condition": "minecraft:entity_properties",
             "entity": "this",
             "predicate": {
-              "minecraft:location": {
+              "location": {
                 "dimension": "minecraft:overworld"
               },
-              "minecraft:vehicle": {
-                "minecraft:entity_type": "minecraft:strider"
+              "vehicle": {
+                "type": "minecraft:strider"
               }
             }
           }

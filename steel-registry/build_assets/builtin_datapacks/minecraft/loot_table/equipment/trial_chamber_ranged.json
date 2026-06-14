@@ -2,6 +2,7 @@
   "type": "minecraft:equipment",
   "pools": [
     {
+      "bonus_rolls": 0.0,
       "entries": [
         {
           "type": "minecraft:loot_table",
@@ -11,6 +12,7 @@
       "rolls": 1.0
     },
     {
+      "bonus_rolls": 0.0,
       "entries": [
         {
           "type": "minecraft:item",
@@ -21,6 +23,7 @@
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "enchantments": {
                 "minecraft:power": 1.0
               },
@@ -33,6 +36,7 @@
           "type": "minecraft:item",
           "functions": [
             {
+              "add": false,
               "enchantments": {
                 "minecraft:punch": 1.0
               },

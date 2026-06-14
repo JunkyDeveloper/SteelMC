@@ -12,7 +12,7 @@
               "condition": "minecraft:entity_properties",
               "entity": "this",
               "predicate": {
-                "minecraft:entity_type": "minecraft:phantom"
+                "type": "minecraft:phantom"
               }
             }
           ],
@@ -21,7 +21,7 @@
               "condition": "minecraft:entity_properties",
               "entity": "this",
               "predicate": {
-                "minecraft:entity_type": "minecraft:phantom"
+                "type": "minecraft:phantom"
               }
             }
           ]

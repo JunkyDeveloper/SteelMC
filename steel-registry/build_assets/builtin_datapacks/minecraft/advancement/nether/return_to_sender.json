@@ -8,13 +8,13 @@
             "condition": "minecraft:entity_properties",
             "entity": "this",
             "predicate": {
-              "minecraft:entity_type": "minecraft:ghast"
+              "type": "minecraft:ghast"
             }
           }
         ],
         "killing_blow": {
           "direct_entity": {
-            "minecraft:entity_type": "minecraft:fireball"
+            "type": "minecraft:fireball"
           },
           "tags": [
             {

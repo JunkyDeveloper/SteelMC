@@ -5,6 +5,7 @@
   "double_trade_price_enchantments": "#minecraft:double_trade_price",
   "given_item_modifiers": [
     {
+      "add": false,
       "enchantments": {
         "minecraft:fortune": 2.0
       },
@@ -35,7 +36,7 @@
     "condition": "minecraft:entity_properties",
     "entity": "this",
     "predicate": {
-      "minecraft:predicates": {
+      "predicates": {
         "minecraft:villager/variant": "minecraft:taiga"
       }
     }

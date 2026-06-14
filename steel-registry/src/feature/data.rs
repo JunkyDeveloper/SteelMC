@@ -9,7 +9,7 @@ use super::{ConfiguredFeatureEntryRef, PlacedFeatureEntryRef};
 use crate::blocks::BlockRef;
 use crate::fluid::FluidRef;
 use steel_utils::{
-    Direction, Identifier, Rotation,
+    Direction, Identifier,
     value_providers::{FloatProvider, HeightProvider, IntProvider, UniformIntProvider},
 };
 
@@ -92,14 +92,10 @@ pub enum ConfiguredFeatureKind {
     SculkPatch(SculkPatchConfiguration),
     SeaPickle(SeaPickleConfiguration),
     Seagrass(SeagrassConfiguration),
-    Sequence(CompositeFeatureConfiguration),
     SimpleBlock(SimpleBlockConfiguration),
     SimpleRandomSelector(SimpleRandomSelectorConfiguration),
-    Speleothem(SpeleothemConfiguration),
-    SpeleothemCluster(SpeleothemClusterConfiguration),
     Spike(SpikeConfiguration),
     SpringFeature(SpringConfiguration),
-    Template(TemplateFeatureConfiguration),
     Tree(TreeConfiguration),
     TwistingVines(TwistingVinesConfiguration),
     UnderwaterMagma(UnderwaterMagmaConfiguration),
@@ -107,7 +103,6 @@ pub enum ConfiguredFeatureKind {
     Vines,
     VoidStartPlatform,
     WaterloggedVegetationPatch(VegetationPatchConfiguration),
-    WeightedRandomSelector(WeightedRandomFeatureConfiguration),
     WeepingVines,
 }
 
@@ -118,13 +113,6 @@ pub struct BlockRefList(pub Vec<BlockRef>);
 /// Fluid refs decoded from vanilla's single-or-list codec shape at build time.
 #[derive(Debug, Clone)]
 pub struct FluidRefList(pub Vec<FluidRef>);
-
-/// Block holder set decoded from vanilla's holder-set codec shape at build time.
-#[derive(Debug, Clone)]
-pub enum BlockHolderSet {
-    Tag(Identifier),
-    Entries(Vec<BlockRef>),
-}
 
 /// Block state data emitted by the feature generator without baking a state id.
 #[derive(Debug, Clone)]
@@ -150,7 +138,6 @@ pub type Offset = [i32; 3];
 /// Block predicates used by placement modifiers and feature configs.
 #[derive(Debug, Clone)]
 pub enum BlockPredicate {
-    True,
     AllOf {
         predicates: Vec<BlockPredicate>,
     },
@@ -404,35 +391,6 @@ pub struct DripstoneClusterConfiguration {
 }
 
 #[derive(Debug, Clone)]
-pub struct SpeleothemClusterConfiguration {
-    pub base_block: BlockStateData,
-    pub pointed_block: BlockStateData,
-    pub replaceable_blocks: BlockHolderSet,
-    pub floor_to_ceiling_search_range: i32,
-    pub height: IntProvider,
-    pub radius: IntProvider,
-    pub max_stalagmite_stalactite_height_diff: i32,
-    pub height_deviation: i32,
-    pub speleothem_block_layer_thickness: IntProvider,
-    pub density: FloatProvider,
-    pub wetness: FloatProvider,
-    pub chance_of_speleothem_at_max_distance_from_center: f32,
-    pub max_distance_from_edge_affecting_chance_of_speleothem: i32,
-    pub max_distance_from_center_affecting_height_bias: i32,
-}
-
-#[derive(Debug, Clone)]
-pub struct SpeleothemConfiguration {
-    pub base_block: BlockStateData,
-    pub pointed_block: BlockStateData,
-    pub replaceable_blocks: BlockHolderSet,
-    pub chance_of_taller_generation: f32,
-    pub chance_of_directional_spread: f32,
-    pub chance_of_spread_radius2: f32,
-    pub chance_of_spread_radius3: f32,
-}
-
-#[derive(Debug, Clone)]
 pub struct EndGatewayConfiguration {
     pub exit: Option<Offset>,
     pub exact: bool,
@@ -537,14 +495,10 @@ pub struct HugeFungusConfiguration {
 pub struct LakeConfiguration {
     pub fluid: BlockStateProvider,
     pub barrier: BlockStateProvider,
-    pub can_place_feature: BlockPredicate,
-    pub can_replace_with_air_or_fluid: BlockPredicate,
-    pub can_replace_with_barrier: BlockPredicate,
 }
 
 #[derive(Debug, Clone)]
 pub struct LargeDripstoneConfiguration {
-    pub replaceable_blocks: BlockHolderSet,
     pub floor_to_ceiling_search_range: i32,
     pub column_radius: IntProvider,
     pub height_scale: FloatProvider,
@@ -627,23 +581,7 @@ pub struct WeightedPlacedFeature {
 }
 
 #[derive(Debug, Clone)]
-pub struct WeightedRandomFeatureConfiguration {
-    pub features: Vec<WeightedRandomPlacedFeature>,
-}
-
-#[derive(Debug, Clone)]
-pub struct WeightedRandomPlacedFeature {
-    pub data: PlacedFeatureRef,
-    pub weight: u32,
-}
-
-#[derive(Debug, Clone)]
 pub struct SimpleRandomSelectorConfiguration {
-    pub features: Vec<PlacedFeatureRef>,
-}
-
-#[derive(Debug, Clone)]
-pub struct CompositeFeatureConfiguration {
     pub features: Vec<PlacedFeatureRef>,
 }
 
@@ -651,8 +589,6 @@ pub struct CompositeFeatureConfiguration {
 pub struct RootSystemConfiguration {
     pub feature: PlacedFeatureRef,
     pub required_vertical_space_for_tree: i32,
-    pub level_test_distance: i32,
-    pub max_level_deviation: i32,
     pub root_radius: i32,
     pub root_placement_attempts: i32,
     pub root_column_max_height: i32,
@@ -662,7 +598,7 @@ pub struct RootSystemConfiguration {
     pub allowed_vertical_water_for_tree: i32,
     pub root_state_provider: BlockStateProvider,
     pub hanging_root_state_provider: BlockStateProvider,
-    pub root_replaceable: BlockHolderSet,
+    pub root_replaceable: Identifier,
     pub allowed_tree_position: BlockPredicate,
 }
 
@@ -706,24 +642,7 @@ pub struct SpringConfiguration {
     pub requires_block_below: bool,
     pub rock_count: i32,
     pub hole_count: i32,
-    pub valid_blocks: BlockHolderSet,
-}
-
-#[derive(Debug, Clone)]
-pub struct TemplateFeatureConfiguration {
-    pub templates: Vec<WeightedTemplateEntry>,
-}
-
-#[derive(Debug, Clone)]
-pub struct WeightedTemplateEntry {
-    pub data: TemplateEntry,
-    pub weight: u32,
-}
-
-#[derive(Debug, Clone)]
-pub struct TemplateEntry {
-    pub id: Identifier,
-    pub rotations: Vec<Rotation>,
+    pub valid_blocks: BlockRefList,
 }
 
 #[derive(Debug, Clone)]

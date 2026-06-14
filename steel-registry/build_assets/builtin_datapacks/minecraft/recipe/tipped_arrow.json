@@ -1,5 +1,6 @@
 {
   "type": "minecraft:crafting_imbue",
+  "category": "misc",
   "material": "minecraft:arrow",
   "result": {
     "count": 8,

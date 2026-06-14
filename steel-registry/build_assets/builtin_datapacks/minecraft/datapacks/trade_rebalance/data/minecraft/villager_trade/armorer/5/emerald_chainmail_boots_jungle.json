@@ -1,6 +1,7 @@
 {
   "given_item_modifiers": [
     {
+      "add": false,
       "enchantments": {
         "minecraft:feather_falling": 1.0
       },
@@ -31,7 +32,7 @@
     "condition": "minecraft:entity_properties",
     "entity": "this",
     "predicate": {
-      "minecraft:predicates": {
+      "predicates": {
         "minecraft:villager/variant": "minecraft:jungle"
       }
     }

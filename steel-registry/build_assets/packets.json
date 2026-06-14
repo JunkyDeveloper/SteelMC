@@ -1,5 +1,5 @@
 {
-  "version": 1073742146,
+  "version": 775,
   "serverbound": {
     "handshake": [
       "intention"
@@ -90,7 +90,7 @@
       "set_structure_block",
       "set_test_block",
       "sign_update",
-      "spectator_action",
+      "spectate_entity",
       "swing",
       "teleport_to_entity",
       "test_instance_block_action",

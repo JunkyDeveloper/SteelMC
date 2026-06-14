@@ -2,6 +2,7 @@
   "type": "minecraft:fishing",
   "pools": [
     {
+      "bonus_rolls": 0.0,
       "entries": [
         {
           "type": "minecraft:loot_table",
@@ -16,7 +17,8 @@
               "condition": "minecraft:entity_properties",
               "entity": "this",
               "predicate": {
-                "minecraft:type_specific/fishing_hook": {
+                "type_specific": {
+                  "type": "minecraft:fishing_hook",
                   "in_open_water": true
                 }
               }
