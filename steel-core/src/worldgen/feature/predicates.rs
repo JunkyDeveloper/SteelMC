@@ -49,6 +49,7 @@ impl FeatureDecorationRunner {
         origin: BlockPos,
     ) -> bool {
         match predicate {
+            BlockPredicate::True => true,
             BlockPredicate::AllOf { predicates } => predicates
                 .iter()
                 .all(|predicate| Self::test_block_predicate(region, registry, predicate, origin)),

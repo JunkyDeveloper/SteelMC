@@ -114,7 +114,7 @@ pub use nether_roots_block::NetherRootsBlock;
 pub use nether_sprouts::NetherSproutsBlock;
 pub use nether_wart::NetherWartBlock;
 pub use pitcher_crop::PitcherCropBlock;
-pub use pointed_dripstone_block::PointedDripstoneBlock;
+pub use pointed_dripstone_block::{PointedDripstoneBlock, SulfurSpikeBlock};
 pub use potato::PotatoBlock;
 pub use sapling_block::SaplingBlock;
 pub use sculk_vein_block::SculkVeinBlock;
