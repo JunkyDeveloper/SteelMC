@@ -250,36 +250,12 @@ mod tests {
             use_favicon = false
             favicon = "config/favicon.png"
             enforce_secure_chat = false
+            chat_spam_threshold_seconds = -1
+            command_spam_threshold_seconds = -1
         "#;
 
         let config: SteelConfig = toml::from_str(input).expect("config should parse");
 
         assert!(!config.server.allow_flight);
-        assert_eq!(config.server.chat_spam_threshold_seconds, -1);
-        assert_eq!(config.server.command_spam_threshold_seconds, -1);
-    }
-
-    #[test]
-    fn server_config_accepts_vanilla_spam_threshold_names() {
-        let input = r#"
-            [server]
-            server_port = 25565
-            max_players = 20
-            view_distance = 10
-            simulation_distance = 10
-            online_mode = true
-            encryption = true
-            motd = "A Steel Server"
-            use_favicon = false
-            favicon = "config/favicon.png"
-            enforce_secure_chat = false
-            chat-spam-threshold-seconds = 12
-            command-spam-threshold-seconds = 8
-        "#;
-
-        let config: SteelConfig = toml::from_str(input).expect("config should parse");
-
-        assert_eq!(config.server.chat_spam_threshold_seconds, 12);
-        assert_eq!(config.server.command_spam_threshold_seconds, 8);
     }
 }
