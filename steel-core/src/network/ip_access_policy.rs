@@ -176,8 +176,6 @@ struct IpAccessPolicyState {
     banned_ips: FxHashSet<IpAddr>,
     shadowbanned_ips: FxHashSet<IpAddr>,
     white_list_ips: FxHashSet<IpAddr>,
-    // less cpu cycles then calling vec.len() every time in loop
-    has_whitelist: bool,
 }
 
 /// Thread-safe holder for ban / whitelist / shadowban list state.
@@ -256,7 +254,6 @@ impl IpAccessPolicy {
                 banned_ips_config_all: Vec::default(),
                 white_list_ips: FxHashSet::default(),
                 shadowbanned_ips: FxHashSet::default(),
-                has_whitelist: false,
             }),
         }
     }
@@ -430,7 +427,6 @@ impl IpAccessPolicy {
     fn set_whitelist(&self, ips: &[IpAddr]) {
         let mut state = self.state.write();
         state.white_list_ips = ips.iter().copied().collect();
-        state.has_whitelist = !ips.is_empty();
     }
 
     /// Whether `ip` may complete the TCP accept stage.
@@ -440,8 +436,7 @@ impl IpAccessPolicy {
     /// connections without going through the login handshake.
     pub fn can_connect(&self, ip: &IpAddr) -> bool {
         let state = self.state.read();
-        (state.has_whitelist && state.white_list_ips.contains(ip))
-            || (!state.has_whitelist && !state.shadowbanned_ips.contains(ip))
+        state.white_list_ips.contains(ip) || !state.shadowbanned_ips.contains(ip)
     }
 
     /// Whether `ip` may join the game.
