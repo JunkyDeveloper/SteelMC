@@ -29,7 +29,7 @@ const FOREVER: &str = "forever";
 /// string is the user-visible message a vanilla-imported ban falls back to.
 const DEFAULT_BAN_REASON: &str = "Your IP was banned";
 
-/// Path to Steel's bans file (`config/ip-bans.toml`).
+/// Path to Steel's bans file.
 pub const STEEL_IP_BANS_PATH: &str = "config/banned-ips.toml";
 const MINECRAFT_BANNED_IP_PATH: &str = "config/banned-ips.json";
 
@@ -129,10 +129,12 @@ pub struct BannedIP {
     pub reason: TextComponent,
 }
 
-/// On-disk shape of `config/ip-bans.toml`. Holds both the metadata-rich
-/// ban list and the bare shadowban list. In-memory the shadowban list is a
-/// `FxHashSet`; TOML has no native set type so it round-trips through
-/// `Vec<IpAddr>`.
+/// Serialized schema for [`STEEL_IP_BANS_PATH`].
+///
+/// Runtime state keeps the shadowban list as an `FxHashSet` for set semantics
+/// and fast lookups. The TOML file stores the same IPs as a `Vec<IpAddr>`
+/// because TOML has arrays but no native set type; loading rebuilds the set and
+/// saving writes the array back.
 #[derive(Serialize, Deserialize, Default)]
 struct IpBansFile {
     ip_banned: Vec<BannedIP>,
@@ -201,7 +203,7 @@ impl Deref for IpAccessPolicyLock {
 /// Global IP access policy.
 ///
 /// Populated by [`init_ip_access_policy`] at startup with the whitelist taken
-/// from the server config; bans are loaded from `config/ip-bans.json`.
+/// from the server config; bans are loaded from [`STEEL_IP_BANS_PATH`].
 pub static IP_ACCESS_POLICY: IpAccessPolicyLock = IpAccessPolicyLock(OnceLock::new());
 
 /// Reads and parses vanilla's `banned-ips.json` at `path`.
@@ -336,12 +338,12 @@ impl IpAccessPolicy {
         self.state.read().shadowbanned_ips.iter().copied().collect()
     }
 
-    /// Reloads the ban list and shadowban list from `config/ip-bans.toml`.
+    /// Reloads the ban list and shadowban list from [`STEEL_IP_BANS_PATH`].
     ///
-    /// If `ip-bans.toml` is missing, attempts a one-time import from
+    /// If the Steel bans file is missing, attempts a one-time import from
     /// vanilla's `config/banned-ips.json` (which only populates the ban
     /// list — vanilla has no separate shadowban list concept). If neither
-    /// exists, creates an empty `ip-bans.toml`. On parse error, logs and
+    /// exists, creates an empty Steel bans file. On parse error, logs and
     /// keeps the in-memory state.
     pub fn load_bans(&self) {
         let path = Path::new(STEEL_IP_BANS_PATH);
@@ -482,7 +484,7 @@ impl IpAccessPolicy {
             })
     }
 
-    /// Persists the merged ban + shadowban list file to `config/ip-bans.toml`.
+    /// Persists the merged ban + shadowban list file to [`STEEL_IP_BANS_PATH`].
     ///
     /// Called automatically from `SteelServer`'s `Drop` impl on clean shutdown.
     /// The whitelist is not written here — it lives in the server config.
@@ -497,6 +499,6 @@ impl IpAccessPolicy {
             shadowbanned: state.shadowbanned_ips.iter().copied().collect(),
         };
         let toml_out = toml::to_string_pretty(&bans_file).expect("Failed to serialize bans file");
-        fs::write(STEEL_IP_BANS_PATH, &toml_out).expect("Failed to write config/ip-bans.toml");
+        fs::write(STEEL_IP_BANS_PATH, &toml_out).expect("Failed to write config/banned-ips.toml");
     }
 }
