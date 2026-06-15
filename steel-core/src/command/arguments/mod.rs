@@ -94,8 +94,9 @@ pub trait CommandArgument: Send + Sync {
     /// Returns the parser ID associated with this argument.
     fn usage(&self) -> (ArgumentType, Option<SuggestionType>);
 
-    /// Returns suggestions for this argument based on the current input prefix.
-    /// Only needs to be implemented for arguments using `SuggestionType::AskServer`.
+    /// Returns server-side suggestions for this argument based on the current input prefix.
+    /// Console completion can call this directly; client-visible suggestions require
+    /// [`usage`](Self::usage) to return `Some(SuggestionType::AskServer)`.
     /// `prefix` is the partial text being typed for this argument.
     /// `suggestion_ctx` contains previously parsed arguments for context-dependent suggestions.
     /// Default implementation returns no suggestions.

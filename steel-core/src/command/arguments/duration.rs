@@ -58,9 +58,6 @@ impl CommandArgument for DurationArgument {
         )
     }
 
-    /// ONLY FOR THE CONSOLE\
-    /// (If you want to also suggest to the client,
-    /// put the `SuggestionType` to `AskServer`)
     fn suggest(
         &self,
         prefix: &str,
