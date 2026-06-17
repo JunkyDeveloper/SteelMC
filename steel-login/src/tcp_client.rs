@@ -33,8 +33,12 @@ use steel_protocol::{
 use steel_registry::packets::{
     CURRENT_MC_PROTOCOL, config, handshake, login as login_packets, status,
 };
+use steel_utils::{
+    MC_VERSION,
+    locks::{AsyncMutex, SyncMutex},
+    translations,
+};
 use steel_utils::translations::MULTIPLAYER_DISCONNECT_BANNED_IP_REASON;
-use steel_utils::{MC_VERSION, locks::AsyncMutex, translations};
 use text_components::{
     TextComponent, content::Resolvable, custom::CustomData, resolving::TextResolutor,
 };
@@ -49,6 +53,7 @@ use tokio::{
     },
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
+use uuid::Uuid;
 
 /// Represents updates to the connection state.
 #[derive(Clone)]
@@ -65,6 +70,21 @@ impl Debug for ConnectionUpdate {
             Self::EnableEncryption(arg0) => f.debug_tuple("EnableEncryption").field(arg0).finish(),
             Self::Upgrade(_) => f.debug_tuple("Upgrade").finish(),
         }
+    }
+}
+
+/// Session id owned by the active server connection listener
+#[derive(Default)]
+pub struct ServerConnectionSession {
+    session_id: SyncMutex<Option<Uuid>>,
+}
+
+impl ServerConnectionSession {
+    /// Returns the listener session id generating it on first use
+    #[must_use]
+    pub fn session_id(&self) -> Uuid {
+        let mut session_id = self.session_id.lock();
+        *session_id.get_or_insert_with(Uuid::new_v4)
     }
 }
 
@@ -132,6 +152,8 @@ pub struct JavaTcpClient {
 
     /// The shared server state.
     pub server: Arc<Server>,
+    /// The session id state for the active server connection listener
+    pub connection_session: Arc<ServerConnectionSession>,
     /// The challenge sent to the client during login.
     pub challenge: AtomicCell<[u8; 4]>,
 
@@ -152,6 +174,7 @@ impl JavaTcpClient {
         id: u64,
         cancel_token: CancellationToken,
         server: Arc<Server>,
+        connection_session: Arc<ServerConnectionSession>,
         task_tracker: TaskTracker,
     ) -> (
         Self,
@@ -176,6 +199,7 @@ impl JavaTcpClient {
             )))),
             compression: Arc::new(AtomicCell::new(None)),
             server,
+            connection_session,
             challenge: AtomicCell::new([0; 4]),
             connection_updates,
             connection_updated: Arc::new(Notify::new()),
