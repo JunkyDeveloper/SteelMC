@@ -11,11 +11,11 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::{io, panic, thread};
 
+use clap::Parser;
+use cli::Cli;
 use crossterm::style::Attribute::{Bold, Dim, Reset};
 use crossterm::style::{Color, ResetColor, SetForegroundColor};
 use futures::FutureExt;
-use clap::Parser;
-use cli::Cli;
 use steel::config::{self, LogConfig};
 use steel::logger::CommandLogger;
 use steel::{SERVER, SteelServer, logger::LoggerLayer};

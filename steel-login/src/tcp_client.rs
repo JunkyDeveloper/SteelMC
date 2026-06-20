@@ -33,12 +33,12 @@ use steel_protocol::{
 use steel_registry::packets::{
     CURRENT_MC_PROTOCOL, config, handshake, login as login_packets, status,
 };
+use steel_utils::translations::MULTIPLAYER_DISCONNECT_BANNED_IP_REASON;
 use steel_utils::{
     MC_VERSION,
     locks::{AsyncMutex, SyncMutex},
     translations,
 };
-use steel_utils::translations::MULTIPLAYER_DISCONNECT_BANNED_IP_REASON;
 use text_components::{
     TextComponent, content::Resolvable, custom::CustomData, resolving::TextResolutor,
 };
