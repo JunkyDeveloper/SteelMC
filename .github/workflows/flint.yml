@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: FlintTestMC/flint-steel
-          ref: flint-viz
+          ref: v1.1.7
           path: flint-steel
 
       - name: Clone FlintBenchmark
