@@ -16,6 +16,7 @@ pub mod locate;
 pub mod pardon_ip;
 pub mod seed;
 pub mod shadowban;
+pub mod setworldspawn;
 pub mod steel;
 pub mod stop;
 pub mod summon;

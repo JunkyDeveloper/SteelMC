@@ -46,6 +46,7 @@ impl CommandDispatcher {
         dispatcher.register(commands::pardon_ip::command_handler());
         dispatcher.register(commands::seed::command_handler());
         dispatcher.register(commands::shadowban::command_handler());
+        dispatcher.register(commands::setworldspawn::command_handler());
         dispatcher.register(commands::steel::command_handler());
         dispatcher.register(commands::stop::command_handler());
         dispatcher.register(commands::summon::command_handler());
