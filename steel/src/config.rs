@@ -458,9 +458,9 @@ fn required_server_keys() -> Result<Vec<String>, String> {
     Ok(required)
 }
 
-/// Backfills missing required `[server]` keys from the packaged defaults
-/// (comment included); everything else is left untouched. Second return
-/// value is whether anything was added.
+/// Backfills missing required `[server]` keys and a missing `[log]` section
+/// from the packaged defaults (comments included); everything else is left
+/// untouched. Second return value is whether anything was added.
 fn extend_missing_required_fields(config_str: &str) -> Result<(String, bool), String> {
     let required = required_server_keys()?;
 
@@ -491,6 +491,17 @@ fn extend_missing_required_fields(config_str: &str) -> Result<(String, bool), St
             changed = true;
         }
     }
+
+    if doc.get("log").is_none() {
+        let (default_key, default_item) = default_doc
+            .as_table()
+            .get_key_value("log")
+            .ok_or("default config has no [log] section")?;
+        doc.as_table_mut()
+            .insert_formatted(&default_key.clone(), default_item.clone());
+        changed = true;
+    }
+
     Ok((doc.to_string(), changed))
 }
 
@@ -1039,6 +1050,9 @@ mod tests {
             use_favicon = false
             favicon = "config/favicon.png"
             enforce_secure_chat = false
+
+            [log]
+            log_level = "debug"
         "#;
 
         let (_extended, changed) =
@@ -1047,8 +1061,41 @@ mod tests {
         assert!(
             !changed,
             "omitting optional/defaulted fields (allow_flight, thresholds, compression, \
-             server_links, threads, [log]) should never trigger a rewrite"
+             server_links, threads) should never trigger a rewrite"
         );
+    }
+
+    #[test]
+    fn extend_missing_required_fields_backfills_missing_log_section() {
+        let input = r#"
+            [server]
+            server_port = 25565
+            max_players = 20
+            view_distance = 10
+            simulation_distance = 10
+            online_mode = true
+            encryption = true
+            motd = "A Steel Server"
+            use_favicon = false
+            favicon = "config/favicon.png"
+            enforce_secure_chat = false
+        "#;
+
+        let (extended, changed) =
+            extend_missing_required_fields(input).expect("extension should succeed");
+
+        assert!(
+            changed,
+            "a config missing [log] entirely should be rewritten"
+        );
+        assert!(extended.contains("[log]"));
+        assert!(extended.contains("# Logging configuration"));
+        assert!(extended.contains("log_path = \"./.logs\""));
+
+        let config: SteelConfig = toml::from_str(&extended).expect("extended config should parse");
+        let log_config = config.log.expect("log section should be present");
+        assert_eq!(log_config.log_path, "./.logs");
+        assert_eq!(log_config.log_level, LogLevel::Info);
     }
 
     #[test]
