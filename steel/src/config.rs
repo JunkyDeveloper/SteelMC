@@ -25,6 +25,7 @@ use steel_core::permission::{
 };
 use tokio::fs as async_fs;
 use toml::ser::Error as TomlSerializeError;
+use toml_edit::{DocumentMut, Item, Table};
 
 #[cfg(feature = "stand-alone")]
 const DEFAULT_FAVICON: &[u8] = include_bytes!("../../package-content/favicon.png");
@@ -433,14 +434,86 @@ impl LogLevel {
     }
 }
 
+/// Required `[server]` keys, found by removing each default key in turn and
+/// checking whether `ServerConfig` still deserializes without it.
+fn required_server_keys() -> Result<Vec<String>, String> {
+    let default: toml::Table = toml::from_str(DEFAULT_CONFIG)
+        .map_err(|e| format!("failed to parse default config: {e}"))?;
+    let server = default
+        .get("server")
+        .and_then(toml::Value::as_table)
+        .ok_or("default config has no [server] table")?;
+
+    let mut required = Vec::new();
+    for key in server.keys() {
+        let mut probe = server.clone();
+        probe.remove(key);
+        if toml::Value::Table(probe)
+            .try_into::<ServerConfig>()
+            .is_err()
+        {
+            required.push(key.clone());
+        }
+    }
+    Ok(required)
+}
+
+/// Backfills missing required `[server]` keys from the packaged defaults
+/// (comment included); everything else is left untouched. Second return
+/// value is whether anything was added.
+fn extend_missing_required_fields(config_str: &str) -> Result<(String, bool), String> {
+    let required = required_server_keys()?;
+
+    let mut doc: DocumentMut = config_str
+        .parse()
+        .map_err(|e| format!("failed to parse config: {e}"))?;
+    let default_doc: DocumentMut = DEFAULT_CONFIG
+        .parse()
+        .map_err(|e| format!("failed to parse default config: {e}"))?;
+    let default_server = default_doc["server"]
+        .as_table()
+        .ok_or("default config has no [server] table")?;
+
+    if doc.get("server").is_none() {
+        doc["server"] = Item::Table(Table::new());
+    }
+    let server = doc["server"]
+        .as_table_mut()
+        .ok_or("config [server] is not a table")?;
+
+    let mut changed = false;
+    for key in &required {
+        if !server.contains_key(key) {
+            let (default_key, default_item) = default_server
+                .get_key_value(key)
+                .ok_or_else(|| format!("default config missing required key `{key}`"))?;
+            server.insert_formatted(&default_key.clone(), default_item.clone());
+            changed = true;
+        }
+    }
+    Ok((doc.to_string(), changed))
+}
+
 /// Loads the server configuration from the given path, or creates it if it doesn't exist.
 ///
+/// Missing required `[server]` fields are backfilled with defaults and
+/// written back instead of failing boot; optional fields stay absent.
 pub fn load_or_create(path: &Path) -> Result<SteelConfig, String> {
     let mut config = if path.exists() {
         let config_str = fs::read_to_string(path)
             .map_err(|e| format!("failed to read config file {}: {e}", path.display()))?;
-        let config: SteelConfig = toml::from_str(config_str.as_str())
-            .map_err(|e| format!("failed to parse config: {e}"))?;
+        let (config_str, extended) = extend_missing_required_fields(&config_str)
+            .map_err(|e| format!("failed to extend config: {e}"))?;
+        if extended {
+            fs::write(path, &config_str).map_err(|e| {
+                format!(
+                    "failed to write extended config file {}: {e}",
+                    path.display()
+                )
+            })?;
+        }
+        let config: SteelConfig =
+            toml::from_str(&config_str).map_err(|e| format!("failed to parse config: {e}"))?;
         validate(&config.server).map_err(|e| format!("failed to validate config: {e}"))?;
         config
     } else {
@@ -886,5 +959,188 @@ mod tests {
         assert!(log_config.log_file);
         assert_eq!(log_config.rotation_time, RotationTimeFormat::Daily);
         assert_eq!(log_config.max_history, 50);
+    }
+
+    #[test]
+    fn required_server_keys_matches_expected_set() {
+        let mut required = required_server_keys().expect("required keys should be derivable");
+        required.sort_unstable();
+
+        let mut expected = vec![
+            "server_port",
+            "max_players",
+            "view_distance",
+            "simulation_distance",
+            "online_mode",
+            "encryption",
+            "motd",
+            "use_favicon",
+            "favicon",
+            "enforce_secure_chat",
+        ];
+        expected.sort_unstable();
+
+        assert_eq!(required, expected);
+    }
+
+    #[test]
+    fn extend_missing_required_fields_backfills_missing_keys_with_comment() {
+        let input = r#"
+            [server]
+            server_port = 25565
+            max_players = 20
+            view_distance = 10
+            simulation_distance = 10
+            online_mode = true
+            encryption = true
+            use_favicon = false
+            favicon = "config/favicon.png"
+        "#;
+
+        let (extended, changed) =
+            extend_missing_required_fields(input).expect("extension should succeed");
+
+        assert!(changed);
+        assert!(
+            extended.contains("server_port = 25565"),
+            "untouched key should survive"
+        );
+        assert!(extended.contains("# Message of the day displayed in server lists"));
+        assert!(extended.contains("motd = \"A Steel Server\""));
+        assert!(extended.contains("# Whether to enforce secure chat"));
+        assert!(extended.contains("enforce_secure_chat = false"));
+
+        let config: SteelConfig = toml::from_str(&extended).expect("extended config should parse");
+        validate(&config.server).expect("extended config should validate");
+    }
+
+    #[test]
+    fn extend_missing_required_fields_is_noop_for_complete_config() {
+        let (_extended, changed) =
+            extend_missing_required_fields(DEFAULT_CONFIG).expect("extension should succeed");
+
+        assert!(
+            !changed,
+            "a config with all required fields should not be rewritten"
+        );
+    }
+
+    #[test]
+    fn extend_missing_required_fields_is_noop_when_only_optional_fields_omitted() {
+        let input = r#"
+            [server]
+            server_port = 25565
+            max_players = 20
+            view_distance = 10
+            simulation_distance = 10
+            online_mode = true
+            encryption = true
+            motd = "A Steel Server"
+            use_favicon = false
+            favicon = "config/favicon.png"
+            enforce_secure_chat = false
+        "#;
+
+        let (_extended, changed) =
+            extend_missing_required_fields(input).expect("extension should succeed");
+
+        assert!(
+            !changed,
+            "omitting optional/defaulted fields (allow_flight, thresholds, compression, \
+             server_links, threads, [log]) should never trigger a rewrite"
+        );
+    }
+
+    #[test]
+    fn extend_missing_required_fields_creates_server_table_if_absent() {
+        let (extended, changed) =
+            extend_missing_required_fields("").expect("extension should succeed");
+
+        assert!(changed);
+        let config: SteelConfig = toml::from_str(&extended)
+            .expect("config with a freshly-created [server] table should parse");
+        validate(&config.server).expect("backfilled config should validate");
+    }
+
+    #[test]
+    fn extend_missing_required_fields_leaves_log_section_untouched() {
+        let input = r#"
+            [log]
+            time = "uptime"
+            module_path = false
+
+            [server]
+            server_port = 25565
+            max_players = 20
+            view_distance = 10
+            simulation_distance = 10
+            online_mode = true
+            encryption = true
+            use_favicon = false
+            favicon = "config/favicon.png"
+            enforce_secure_chat = false
+        "#;
+
+        let (extended, changed) =
+            extend_missing_required_fields(input).expect("extension should succeed");
+
+        assert!(changed);
+        assert!(extended.contains("time = \"uptime\""));
+        assert!(extended.contains("module_path = false"));
+        assert!(
+            extended.contains("motd = \"A Steel Server\""),
+            "motd should be backfilled"
+        );
+
+        let log_index = extended
+            .find("[log]")
+            .expect("[log] should still be present");
+        let server_index = extended
+            .find("[server]")
+            .expect("[server] should still be present");
+        let motd_index = extended.find("motd").expect("motd should be present");
+        assert!(
+            log_index < server_index && server_index < motd_index,
+            "backfilled key should land inside [server], after the untouched [log] section"
+        );
+
+        let config: SteelConfig = toml::from_str(&extended).expect("extended config should parse");
+        let log_config = config.log.expect("log section should still be present");
+        assert_eq!(log_config.time, LogTimeFormat::Uptime);
+        assert!(!log_config.module_path);
+    }
+
+    #[test]
+    fn load_or_create_backfills_missing_required_field_on_disk() {
+        let root = temp_config_root("backfill");
+        let path = root.join("config.toml");
+        fs::create_dir_all(&root).expect("temp config directory should be creatable");
+        fs::write(
+            &path,
+            r#"
+                [server]
+                server_port = 25565
+                max_players = 20
+                view_distance = 10
+                simulation_distance = 10
+                online_mode = true
+                encryption = true
+                use_favicon = false
+                favicon = "config/favicon.png"
+                enforce_secure_chat = false
+            "#,
+        )
+        .expect("temp config should be writable");
+
+        let config = load_or_create(&path).expect("config missing only motd should still boot");
+        assert_eq!(config.server.motd, "A Steel Server");
+
+        let on_disk = fs::read_to_string(&path).expect("config file should be readable");
+        assert!(
+            on_disk.contains("motd = \"A Steel Server\""),
+            "missing required field should be persisted back to disk"
+        );
+
+        fs::remove_dir_all(root).expect("temporary config directory should be removable");
     }
 }
