@@ -13,7 +13,7 @@ use crate::{
 use steel_utils::{
     Identifier,
     codec::VarInt,
-    hash::{ComponentHasher, HashComponent, HashEntry, sort_map_entries},
+    hash::{ComponentHasher, HashComponent, push_hash_entry, sort_map_entries},
     nbt::NbtNumeric as _,
     serial::{ReadFrom, WriteTo},
 };
@@ -126,14 +126,6 @@ impl HashComponent for Equippable {
         }
         hasher.end_map();
     }
-}
-
-fn push_hash_entry<T: HashComponent + ?Sized>(entries: &mut Vec<HashEntry>, key: &str, value: &T) {
-    let mut key_hasher = ComponentHasher::new();
-    key_hasher.put_string(key);
-    let mut value_hasher = ComponentHasher::new();
-    value.hash_component(&mut value_hasher);
-    entries.push(HashEntry::new(key_hasher, value_hasher));
 }
 
 impl simdnbt::ToNbtTag for Equippable {

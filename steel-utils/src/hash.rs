@@ -341,6 +341,35 @@ pub fn sort_map_entries(entries: &mut [HashEntry]) {
     });
 }
 
+/// Hashes a string key and a component value, then appends the resulting
+/// [`HashEntry`] to `entries` for later map sorting.
+///
+/// This is the shared building block for component map hashing used across the
+/// registry codecs.
+pub fn push_hash_entry<T: HashComponent + ?Sized>(
+    entries: &mut Vec<HashEntry>,
+    key: &str,
+    value: &T,
+) {
+    let mut key_hasher = ComponentHasher::new();
+    key_hasher.put_string(key);
+    let mut value_hasher = ComponentHasher::new();
+    value.hash_component(&mut value_hasher);
+    entries.push(HashEntry::new(key_hasher, value_hasher));
+}
+
+/// Sorts `entries` into vanilla map order and writes them into `hasher` as a
+/// hashed map (start-map marker, each entry's key/value hash bytes, end-map).
+pub fn hash_entries(hasher: &mut ComponentHasher, entries: &mut [HashEntry]) {
+    sort_map_entries(entries);
+    hasher.start_map();
+    for entry in entries {
+        hasher.put_raw_bytes(&entry.key_bytes);
+        hasher.put_raw_bytes(&entry.value_bytes);
+    }
+    hasher.end_map();
+}
+
 /// Trait for types that can be hashed for component validation.
 pub trait HashComponent {
     /// Hashes this value into the given hasher.

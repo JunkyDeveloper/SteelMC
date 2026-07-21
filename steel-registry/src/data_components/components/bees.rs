@@ -5,7 +5,7 @@ use std::io::{Cursor, Error, Result, Write};
 use simdnbt::owned::{NbtCompound, NbtList, NbtTag};
 use simdnbt::{FromNbtTag, ToNbtTag};
 use steel_utils::codec::VarInt;
-use steel_utils::hash::{ComponentHasher, HashComponent, HashEntry, sort_map_entries};
+use steel_utils::hash::{ComponentHasher, HashComponent, push_hash_entry, sort_map_entries};
 use steel_utils::nbt::NbtNumeric as _;
 use steel_utils::serial::{ReadFrom, WriteTo};
 
@@ -183,14 +183,6 @@ fn write_count(count: usize, writer: &mut impl Write) -> Result<()> {
 fn read_count(data: &mut Cursor<&[u8]>) -> Result<usize> {
     let count = VarInt::read(data)?.0;
     usize::try_from(count).map_err(|_| Error::other(format!("Negative bee count: {count}")))
-}
-
-fn push_hash_entry<T: HashComponent + ?Sized>(entries: &mut Vec<HashEntry>, key: &str, value: &T) {
-    let mut key_hasher = ComponentHasher::new();
-    key_hasher.put_string(key);
-    let mut value_hasher = ComponentHasher::new();
-    value.hash_component(&mut value_hasher);
-    entries.push(HashEntry::new(key_hasher, value_hasher));
 }
 
 #[cfg(test)]

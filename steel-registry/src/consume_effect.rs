@@ -7,7 +7,7 @@ use rustc_hash::FxHashMap;
 use simdnbt::ToNbtTag as _;
 use simdnbt::owned::{NbtCompound, NbtList, NbtTag};
 use steel_utils::codec::VarInt;
-use steel_utils::hash::{ComponentHasher, HashComponent, HashEntry, sort_map_entries};
+use steel_utils::hash::{ComponentHasher, HashComponent, HashEntry, hash_entries, push_hash_entry};
 use steel_utils::nbt::NbtNumeric as _;
 use steel_utils::serial::{ReadFrom, WriteTo};
 use steel_utils::{Downcast as _, DowncastType, DowncastTypeKey, ErasedType, Identifier};
@@ -651,22 +651,4 @@ fn write_count(count: usize, writer: &mut Vec<u8>, name: &str) -> Result<()> {
 fn read_count(data: &mut Cursor<&[u8]>, name: &str) -> Result<usize> {
     let count = VarInt::read(data)?.0;
     usize::try_from(count).map_err(|_| Error::other(format!("Negative {name} count: {count}")))
-}
-
-fn push_hash_entry<T: HashComponent + ?Sized>(entries: &mut Vec<HashEntry>, key: &str, value: &T) {
-    let mut key_hasher = ComponentHasher::new();
-    key_hasher.put_string(key);
-    let mut value_hasher = ComponentHasher::new();
-    value.hash_component(&mut value_hasher);
-    entries.push(HashEntry::new(key_hasher, value_hasher));
-}
-
-fn hash_entries(hasher: &mut ComponentHasher, entries: &mut [HashEntry]) {
-    sort_map_entries(entries);
-    hasher.start_map();
-    for entry in entries {
-        hasher.put_raw_bytes(&entry.key_bytes);
-        hasher.put_raw_bytes(&entry.value_bytes);
-    }
-    hasher.end_map();
 }

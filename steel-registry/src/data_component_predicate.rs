@@ -18,8 +18,8 @@ use crate::data_components::{ComponentData, ComponentEntryRef, DataComponentMap}
 use crate::enchantment::Enchantment;
 use crate::equipment::EquipmentSlotGroup;
 use crate::item_predicate::{
-    DoubleBounds, IntBounds, ItemPredicate, NbtPredicate, decode_optional, hash_entries,
-    push_hash_entry, read_len, read_network_nbt, write_len,
+    DoubleBounds, IntBounds, ItemPredicate, NbtPredicate, decode_optional, read_len,
+    read_network_nbt, write_len,
 };
 use crate::jukebox_song::JukeboxSong;
 use crate::potion::Potion;
@@ -27,6 +27,7 @@ use crate::trim_material::TrimMaterial;
 use crate::trim_pattern::TrimPattern;
 use crate::villager_type::VillagerType;
 use crate::{REGISTRY, RegistryEntry, RegistryExt, RegistryHolderSet};
+use steel_utils::hash::{hash_entries, push_hash_entry};
 
 /// Typed payload behavior for a registered partial component predicate.
 pub trait DataComponentPredicateCodec:

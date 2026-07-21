@@ -4,7 +4,7 @@ use std::io::{Cursor, Result, Write};
 
 use simdnbt::owned::{NbtCompound, NbtTag};
 use simdnbt::{FromNbtTag, ToNbtTag};
-use steel_utils::hash::{ComponentHasher, HashComponent, HashEntry, sort_map_entries};
+use steel_utils::hash::{ComponentHasher, HashComponent, push_hash_entry, sort_map_entries};
 use steel_utils::serial::{ReadFrom, WriteTo};
 
 use crate::RegistryHolder;
@@ -86,14 +86,6 @@ impl HashComponent for ArmorTrim {
         }
         hasher.end_map();
     }
-}
-
-fn push_hash_entry<T: HashComponent + ?Sized>(entries: &mut Vec<HashEntry>, key: &str, value: &T) {
-    let mut key_hasher = ComponentHasher::new();
-    key.hash_component(&mut key_hasher);
-    let mut value_hasher = ComponentHasher::new();
-    value.hash_component(&mut value_hasher);
-    entries.push(HashEntry::new(key_hasher, value_hasher));
 }
 
 #[cfg(test)]

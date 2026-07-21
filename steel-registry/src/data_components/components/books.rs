@@ -5,7 +5,7 @@ use std::io::{Cursor, Error, Result, Write};
 use simdnbt::owned::{NbtCompound, NbtList, NbtTag};
 use simdnbt::{FromNbtTag, ToNbtTag};
 use steel_utils::codec::VarInt;
-use steel_utils::hash::{ComponentHasher, HashComponent, HashEntry, sort_map_entries};
+use steel_utils::hash::{ComponentHasher, HashComponent, hash_entries, push_hash_entry};
 use steel_utils::nbt::NbtNumeric as _;
 use steel_utils::serial::{PrefixedRead, PrefixedWrite, ReadFrom, WriteTo};
 use text_components::TextComponent;
@@ -567,24 +567,6 @@ impl HashComponent for FilterableComponentList<'_> {
         }
         hasher.end_list();
     }
-}
-
-fn push_hash_entry<T: HashComponent + ?Sized>(entries: &mut Vec<HashEntry>, key: &str, value: &T) {
-    let mut key_hasher = ComponentHasher::new();
-    key_hasher.put_string(key);
-    let mut value_hasher = ComponentHasher::new();
-    value.hash_component(&mut value_hasher);
-    entries.push(HashEntry::new(key_hasher, value_hasher));
-}
-
-fn hash_entries(hasher: &mut ComponentHasher, entries: &mut [HashEntry]) {
-    sort_map_entries(entries);
-    hasher.start_map();
-    for entry in entries {
-        hasher.put_raw_bytes(&entry.key_bytes);
-        hasher.put_raw_bytes(&entry.value_bytes);
-    }
-    hasher.end_map();
 }
 
 #[cfg(test)]
