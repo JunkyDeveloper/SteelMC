@@ -240,6 +240,36 @@ const fn axis_offset(offset: DVec3, axis: Axis) -> f64 {
     }
 }
 
+/// Common interface over `VoxelShape` and `OffsetVoxelShape` so the shape-query
+/// logic (cell fills, face coverage, support checks) is written once and shared
+/// between the plain and offset variants.
+trait ShapeLike: Copy {
+    /// Iterates over the block-local boxes, with any block-state offset already applied.
+    fn shape_boxes(self) -> impl Iterator<Item = BlockLocalAabb>;
+    /// Whether the shape has no non-empty boxes.
+    fn shape_is_empty(self) -> bool;
+}
+
+impl ShapeLike for VoxelShape {
+    fn shape_boxes(self) -> impl Iterator<Item = BlockLocalAabb> {
+        self.into_iter().copied()
+    }
+
+    fn shape_is_empty(self) -> bool {
+        self.is_empty()
+    }
+}
+
+impl ShapeLike for OffsetVoxelShape {
+    fn shape_boxes(self) -> impl Iterator<Item = BlockLocalAabb> {
+        self.iter()
+    }
+
+    fn shape_is_empty(self) -> bool {
+        self.is_empty()
+    }
+}
+
 /// An ID referencing a registered `VoxelShape` in the `ShapeRegistry`.
 ///
 /// Use this to refer to shapes in a compact way. The actual shape data
@@ -525,7 +555,7 @@ pub fn is_offset_shape_full_block(shape: OffsetVoxelShape) -> bool {
                 if z[1] - z[0] <= VOXEL_EPSILON {
                     continue;
                 }
-                if !offset_shape_fills_cell(shape, x[0], x[1], y[0], y[1], z[0], z[1]) {
+                if !shape_fills_cell(shape, x[0], x[1], y[0], y[1], z[0], z[1]) {
                     return false;
                 }
             }
@@ -679,8 +709,8 @@ fn sort_and_dedup_voxel_edges(edges: &mut Vec<f64>) {
     edges.dedup_by(|a, b| (*a - *b).abs() <= VOXEL_EPSILON);
 }
 
-fn shape_fills_cell(
-    shape: VoxelShape,
+fn shape_fills_cell<S: ShapeLike>(
+    shape: S,
     min_x: f64,
     max_x: f64,
     min_y: f64,
@@ -688,27 +718,7 @@ fn shape_fills_cell(
     min_z: f64,
     max_z: f64,
 ) -> bool {
-    shape.into_iter().any(|aabb| {
-        !aabb.is_empty()
-            && aabb.min_x() <= min_x + VOXEL_EPSILON
-            && aabb.max_x() >= max_x - VOXEL_EPSILON
-            && aabb.min_y() <= min_y + VOXEL_EPSILON
-            && aabb.max_y() >= max_y - VOXEL_EPSILON
-            && aabb.min_z() <= min_z + VOXEL_EPSILON
-            && aabb.max_z() >= max_z - VOXEL_EPSILON
-    })
-}
-
-fn offset_shape_fills_cell(
-    shape: OffsetVoxelShape,
-    min_x: f64,
-    max_x: f64,
-    min_y: f64,
-    max_y: f64,
-    min_z: f64,
-    max_z: f64,
-) -> bool {
-    shape.iter().any(|aabb| {
+    shape.shape_boxes().any(|aabb| {
         !aabb.is_empty()
             && aabb.min_x() <= min_x + VOXEL_EPSILON
             && aabb.max_x() >= max_x - VOXEL_EPSILON
@@ -750,12 +760,16 @@ const RIGID_BORDER: f64 = 0.125; // 2/16
 /// completely covers the 1x1 face area.
 #[must_use]
 pub fn is_face_full(shape: VoxelShape, direction: Direction) -> bool {
-    face_rectangles_cover(shape, direction, 0.0, 1.0, 0.0, 1.0)
+    is_face_full_impl(shape, direction)
 }
 
 #[must_use]
 pub fn is_offset_face_full(shape: OffsetVoxelShape, direction: Direction) -> bool {
-    offset_face_rectangles_cover(shape, direction, 0.0, 1.0, 0.0, 1.0)
+    is_face_full_impl(shape, direction)
+}
+
+fn is_face_full_impl<S: ShapeLike>(shape: S, direction: Direction) -> bool {
+    face_rectangles_cover_impl(shape, direction, 0.0, 1.0, 0.0, 1.0)
 }
 
 /// Checks if a shape provides center support on a face.
@@ -763,46 +777,21 @@ pub fn is_offset_face_full(shape: OffsetVoxelShape, direction: Direction) -> boo
 /// The center area is a 12x12 pixel region (0.125 to 0.875 on each axis).
 #[must_use]
 pub fn is_face_center_supported(shape: VoxelShape, direction: Direction) -> bool {
-    if shape.is_empty() {
-        return false;
-    }
-
-    match direction {
-        Direction::Down | Direction::Up => face_rectangles_cover(
-            shape,
-            direction,
-            CENTER_SUPPORT_MIN,
-            CENTER_SUPPORT_MAX,
-            CENTER_SUPPORT_MIN,
-            CENTER_SUPPORT_MAX,
-        ),
-        Direction::North | Direction::South => face_rectangles_cover(
-            shape,
-            direction,
-            CENTER_SUPPORT_MIN,
-            CENTER_SUPPORT_MAX,
-            0.0,
-            CENTER_SUPPORT_Y_MAX,
-        ),
-        Direction::West | Direction::East => face_rectangles_cover(
-            shape,
-            direction,
-            0.0,
-            CENTER_SUPPORT_Y_MAX,
-            CENTER_SUPPORT_MIN,
-            CENTER_SUPPORT_MAX,
-        ),
-    }
+    is_face_center_supported_impl(shape, direction)
 }
 
 #[must_use]
 pub fn is_offset_face_center_supported(shape: OffsetVoxelShape, direction: Direction) -> bool {
-    if shape.is_empty() {
+    is_face_center_supported_impl(shape, direction)
+}
+
+fn is_face_center_supported_impl<S: ShapeLike>(shape: S, direction: Direction) -> bool {
+    if shape.shape_is_empty() {
         return false;
     }
 
     match direction {
-        Direction::Down | Direction::Up => offset_face_rectangles_cover(
+        Direction::Down | Direction::Up => face_rectangles_cover_impl(
             shape,
             direction,
             CENTER_SUPPORT_MIN,
@@ -810,7 +799,7 @@ pub fn is_offset_face_center_supported(shape: OffsetVoxelShape, direction: Direc
             CENTER_SUPPORT_MIN,
             CENTER_SUPPORT_MAX,
         ),
-        Direction::North | Direction::South => offset_face_rectangles_cover(
+        Direction::North | Direction::South => face_rectangles_cover_impl(
             shape,
             direction,
             CENTER_SUPPORT_MIN,
@@ -818,7 +807,7 @@ pub fn is_offset_face_center_supported(shape: OffsetVoxelShape, direction: Direc
             0.0,
             CENTER_SUPPORT_Y_MAX,
         ),
-        Direction::West | Direction::East => offset_face_rectangles_cover(
+        Direction::West | Direction::East => face_rectangles_cover_impl(
             shape,
             direction,
             0.0,
@@ -834,48 +823,24 @@ pub fn is_offset_face_center_supported(shape: OffsetVoxelShape, direction: Direc
 /// Rigid support requires coverage of vanilla's fixed 3D support mask.
 #[must_use]
 pub fn is_face_rigid_supported(shape: VoxelShape, direction: Direction) -> bool {
-    if shape.is_empty() {
-        return false;
-    }
-
-    match direction {
-        Direction::Down | Direction::Up => {
-            face_rectangles_cover(shape, direction, 0.0, RIGID_BORDER, 0.0, 1.0)
-                && face_rectangles_cover(shape, direction, 1.0 - RIGID_BORDER, 1.0, 0.0, 1.0)
-                && face_rectangles_cover(
-                    shape,
-                    direction,
-                    RIGID_BORDER,
-                    1.0 - RIGID_BORDER,
-                    0.0,
-                    RIGID_BORDER,
-                )
-                && face_rectangles_cover(
-                    shape,
-                    direction,
-                    RIGID_BORDER,
-                    1.0 - RIGID_BORDER,
-                    1.0 - RIGID_BORDER,
-                    1.0,
-                )
-        }
-        Direction::North | Direction::South | Direction::West | Direction::East => {
-            is_face_full(shape, direction)
-        }
-    }
+    is_face_rigid_supported_impl(shape, direction)
 }
 
 #[must_use]
 pub fn is_offset_face_rigid_supported(shape: OffsetVoxelShape, direction: Direction) -> bool {
-    if shape.is_empty() {
+    is_face_rigid_supported_impl(shape, direction)
+}
+
+fn is_face_rigid_supported_impl<S: ShapeLike>(shape: S, direction: Direction) -> bool {
+    if shape.shape_is_empty() {
         return false;
     }
 
     match direction {
         Direction::Down | Direction::Up => {
-            offset_face_rectangles_cover(shape, direction, 0.0, RIGID_BORDER, 0.0, 1.0)
-                && offset_face_rectangles_cover(shape, direction, 1.0 - RIGID_BORDER, 1.0, 0.0, 1.0)
-                && offset_face_rectangles_cover(
+            face_rectangles_cover_impl(shape, direction, 0.0, RIGID_BORDER, 0.0, 1.0)
+                && face_rectangles_cover_impl(shape, direction, 1.0 - RIGID_BORDER, 1.0, 0.0, 1.0)
+                && face_rectangles_cover_impl(
                     shape,
                     direction,
                     RIGID_BORDER,
@@ -883,7 +848,7 @@ pub fn is_offset_face_rigid_supported(shape: OffsetVoxelShape, direction: Direct
                     0.0,
                     RIGID_BORDER,
                 )
-                && offset_face_rectangles_cover(
+                && face_rectangles_cover_impl(
                     shape,
                     direction,
                     RIGID_BORDER,
@@ -893,7 +858,7 @@ pub fn is_offset_face_rigid_supported(shape: OffsetVoxelShape, direction: Direct
                 )
         }
         Direction::North | Direction::South | Direction::West | Direction::East => {
-            is_offset_face_full(shape, direction)
+            is_face_full_impl(shape, direction)
         }
     }
 }
@@ -901,11 +866,7 @@ pub fn is_offset_face_rigid_supported(shape: OffsetVoxelShape, direction: Direct
 /// Checks if a shape is sturdy on a face for the given support type.
 #[must_use]
 pub fn is_face_sturdy(shape: VoxelShape, direction: Direction, support_type: SupportType) -> bool {
-    match support_type {
-        SupportType::Full => is_face_full(shape, direction),
-        SupportType::Center => is_face_center_supported(shape, direction),
-        SupportType::Rigid => is_face_rigid_supported(shape, direction),
-    }
+    is_face_sturdy_impl(shape, direction, support_type)
 }
 
 #[must_use]
@@ -914,10 +875,18 @@ pub fn is_offset_face_sturdy(
     direction: Direction,
     support_type: SupportType,
 ) -> bool {
+    is_face_sturdy_impl(shape, direction, support_type)
+}
+
+fn is_face_sturdy_impl<S: ShapeLike>(
+    shape: S,
+    direction: Direction,
+    support_type: SupportType,
+) -> bool {
     match support_type {
-        SupportType::Full => is_offset_face_full(shape, direction),
-        SupportType::Center => is_offset_face_center_supported(shape, direction),
-        SupportType::Rigid => is_offset_face_rigid_supported(shape, direction),
+        SupportType::Full => is_face_full_impl(shape, direction),
+        SupportType::Center => is_face_center_supported_impl(shape, direction),
+        SupportType::Rigid => is_face_rigid_supported_impl(shape, direction),
     }
 }
 
@@ -940,28 +909,9 @@ pub fn face_rectangles_cover(
     target_min_b: f64,
     target_max_b: f64,
 ) -> bool {
-    let mut rects = Vec::new();
-    for aabb in shape {
-        let Some(rect) = face_rect_for_aabb(*aabb, direction) else {
-            continue;
-        };
-        if rect.max_a <= target_min_a
-            || rect.min_a >= target_max_a
-            || rect.max_b <= target_min_b
-            || rect.min_b >= target_max_b
-        {
-            continue;
-        }
-        rects.push(FaceRect {
-            min_a: rect.min_a.max(target_min_a),
-            max_a: rect.max_a.min(target_max_a),
-            min_b: rect.min_b.max(target_min_b),
-            max_b: rect.max_b.min(target_max_b),
-        });
-    }
-
-    face_rects_cover_target(
-        rects,
+    face_rectangles_cover_impl(
+        shape,
+        direction,
         target_min_a,
         target_max_a,
         target_min_b,
@@ -978,8 +928,26 @@ pub fn offset_face_rectangles_cover(
     target_min_b: f64,
     target_max_b: f64,
 ) -> bool {
+    face_rectangles_cover_impl(
+        shape,
+        direction,
+        target_min_a,
+        target_max_a,
+        target_min_b,
+        target_max_b,
+    )
+}
+
+fn face_rectangles_cover_impl<S: ShapeLike>(
+    shape: S,
+    direction: Direction,
+    target_min_a: f64,
+    target_max_a: f64,
+    target_min_b: f64,
+    target_max_b: f64,
+) -> bool {
     let mut rects = Vec::new();
-    for aabb in shape.iter() {
+    for aabb in shape.shape_boxes() {
         let Some(rect) = face_rect_for_aabb(aabb, direction) else {
             continue;
         };

@@ -6,7 +6,7 @@ use std::str::FromStr;
 use simdnbt::owned::{NbtCompound, NbtTag, read_tag};
 use simdnbt::{FromNbtTag, ToNbtTag};
 use steel_utils::Identifier;
-use steel_utils::hash::{ComponentHasher, HashComponent, HashEntry, sort_map_entries};
+use steel_utils::hash::{ComponentHasher, HashComponent, push_hash_entry, sort_map_entries};
 use steel_utils::nbt::vanilla_nbt_heap_size;
 use steel_utils::serial::{ReadFrom, WriteTo};
 
@@ -120,14 +120,6 @@ fn codec_i64(tag: &NbtTag) -> Option<i64> {
         NbtTag::Double(value) => Some(*value as i64),
         _ => None,
     }
-}
-
-fn push_hash_entry<T: HashComponent + ?Sized>(entries: &mut Vec<HashEntry>, key: &str, value: &T) {
-    let mut key_hasher = ComponentHasher::new();
-    key_hasher.put_string(key);
-    let mut value_hasher = ComponentHasher::new();
-    value.hash_component(&mut value_hasher);
-    entries.push(HashEntry::new(key_hasher, value_hasher));
 }
 
 #[cfg(test)]

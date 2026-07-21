@@ -8,7 +8,7 @@ use simdnbt::owned::{NbtCompound, NbtTag};
 use simdnbt::{FromNbtTag, ToNbtTag};
 use steel_utils::Identifier;
 use steel_utils::codec::VarInt;
-use steel_utils::hash::{ComponentHasher, HashComponent, HashEntry, sort_map_entries};
+use steel_utils::hash::{ComponentHasher, HashComponent, HashEntry, hash_entries, push_hash_entry};
 use steel_utils::serial::{PrefixedRead, PrefixedWrite, ReadFrom, WriteTo};
 use text_components::TextComponent;
 
@@ -257,7 +257,7 @@ impl HashComponent for TrimMaterialValue {
         let mut entries = Vec::new();
         self.assets.push_hash_fields(&mut entries);
         push_hash_entry(&mut entries, "description", &self.description);
-        hash_entries(entries, hasher);
+        hash_entries(hasher, &mut entries);
     }
 }
 
@@ -275,30 +275,13 @@ fn hash_overrides(
             HashEntry::new(key_hasher, value_hasher)
         })
         .collect::<Vec<_>>();
-    sort_map_entries(&mut entries);
-    hash_entries(entries, hasher);
-}
-
-fn push_hash_entry<T: HashComponent + ?Sized>(entries: &mut Vec<HashEntry>, key: &str, value: &T) {
-    let mut value_hasher = ComponentHasher::new();
-    value.hash_component(&mut value_hasher);
-    push_prehashed_entry(entries, key, value_hasher);
+    hash_entries(hasher, &mut entries);
 }
 
 fn push_prehashed_entry(entries: &mut Vec<HashEntry>, key: &str, value_hasher: ComponentHasher) {
     let mut key_hasher = ComponentHasher::new();
     key.hash_component(&mut key_hasher);
     entries.push(HashEntry::new(key_hasher, value_hasher));
-}
-
-fn hash_entries(mut entries: Vec<HashEntry>, hasher: &mut ComponentHasher) {
-    sort_map_entries(&mut entries);
-    hasher.start_map();
-    for entry in &entries {
-        hasher.put_raw_bytes(&entry.key_bytes);
-        hasher.put_raw_bytes(&entry.value_bytes);
-    }
-    hasher.end_map();
 }
 
 /// Registered armor trim material definition.

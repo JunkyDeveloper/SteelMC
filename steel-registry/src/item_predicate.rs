@@ -6,7 +6,7 @@ use std::io::{Cursor, Error, Result, Write};
 use simdnbt::owned::{NbtCompound, NbtList, NbtTag, read_tag};
 use simdnbt::{FromNbtTag, ToNbtTag};
 use steel_utils::codec::VarInt;
-use steel_utils::hash::{ComponentHasher, HashComponent, HashEntry, sort_map_entries};
+use steel_utils::hash::{ComponentHasher, HashComponent, HashEntry, hash_entries, push_hash_entry};
 use steel_utils::nbt::{
     NbtNumeric, normalize_nbt_compound, parse_snbt_compound, to_canonical_snbt,
     vanilla_nbt_heap_size,
@@ -888,18 +888,6 @@ fn read_optional_utf(data: &mut Cursor<&[u8]>) -> Result<Option<String>> {
     bool::read(data)?.then(|| read_utf(data)).transpose()
 }
 
-pub(crate) fn push_hash_entry<T: HashComponent + ?Sized>(
-    entries: &mut Vec<HashEntry>,
-    key: &str,
-    value: &T,
-) {
-    let mut key_hasher = ComponentHasher::new();
-    key.hash_component(&mut key_hasher);
-    let mut value_hasher = ComponentHasher::new();
-    value.hash_component(&mut value_hasher);
-    entries.push(HashEntry::new(key_hasher, value_hasher));
-}
-
 pub(crate) fn push_prehashed_entry(
     entries: &mut Vec<HashEntry>,
     key: &str,
@@ -908,16 +896,6 @@ pub(crate) fn push_prehashed_entry(
     let mut key_hasher = ComponentHasher::new();
     key.hash_component(&mut key_hasher);
     entries.push(HashEntry::new(key_hasher, value_hasher));
-}
-
-pub(crate) fn hash_entries(hasher: &mut ComponentHasher, entries: &mut [HashEntry]) {
-    sort_map_entries(entries);
-    hasher.start_map();
-    for entry in entries {
-        hasher.put_raw_bytes(&entry.key_bytes);
-        hasher.put_raw_bytes(&entry.value_bytes);
-    }
-    hasher.end_map();
 }
 
 #[cfg(test)]

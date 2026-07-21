@@ -26,6 +26,50 @@ const WRONG_READ_FORMAT: &str = "attribute requires a list format: `#[read(as = 
 const WRONG_WRITE_FORMAT: &str =
     "attribute requires a list format: `#[write(as = ..., bound = ..)]";
 
+/// Parses the shared `as = ...` / `bound = ...` list attribute used by both the
+/// `read` and `write` derives (on fields, newtype structs, and enums).
+///
+/// `attr_name` selects which attribute to read (`"read"` or `"write"`);
+/// `unsupported_msg`/`wrong_format_msg` provide the derive-specific panic text.
+/// Returns `(strategy, bound)`, both `None` when the attribute is absent.
+///
+/// # Panics
+/// - If the attribute is present but not in list form (`wrong_format_msg`).
+/// - If nested-meta parsing fails.
+fn parse_strategy_attrs(
+    attrs: &[syn::Attribute],
+    attr_name: &str,
+    unsupported_msg: &str,
+    wrong_format_msg: &str,
+) -> (Option<Strategy>, Option<syn::LitInt>) {
+    let mut strategy: Option<Strategy> = None;
+    let mut bound: Option<syn::LitInt> = None;
+
+    if let Some(attr) = attrs.iter().find(|a| a.path().is_ident(attr_name)) {
+        if let Meta::List(meta) = attr.meta.clone() {
+            meta.parse_nested_meta(|meta| {
+                if meta.path.is_ident("as") {
+                    let value = meta.value()?;
+                    strategy = Some(value.parse()?);
+                    Ok(())
+                } else if meta.path.is_ident("bound") {
+                    let value = meta.value()?;
+                    let int_lit: syn::LitInt = value.parse()?;
+                    bound = Some(int_lit);
+                    Ok(())
+                } else {
+                    Err(meta.error(unsupported_msg))
+                }
+            })
+            .unwrap_or_else(|e| panic!("Failed to parse `{attr_name}` attribute: {e}"));
+        } else {
+            panic!("{wrong_format_msg}");
+        }
+    }
+
+    (strategy, bound)
+}
+
 /// Represents a parsed strategy from read/write attributes.
 ///
 /// Supports:
@@ -202,31 +246,8 @@ struct FieldReadAttributes {
 }
 
 fn parse_read_attributes(f: &syn::Field) -> FieldReadAttributes {
-    let mut strategy: Option<Strategy> = None;
-    let mut bound: Option<syn::LitInt> = None;
-
-    if let Some(attr) = f.attrs.iter().find(|a| a.path().is_ident("read")) {
-        if let Meta::List(meta) = attr.meta.clone() {
-            meta.parse_nested_meta(|meta| {
-                if meta.path.is_ident("as") {
-                    let value = meta.value()?;
-                    strategy = Some(value.parse()?);
-                    Ok(())
-                } else if meta.path.is_ident("bound") {
-                    let value = meta.value()?;
-                    let int_lit: syn::LitInt = value.parse()?;
-                    bound = Some(int_lit);
-                    Ok(())
-                } else {
-                    Err(meta.error(UNSUPPORTED_READ_PROP))
-                }
-            })
-            .unwrap_or_else(|e| panic!("Failed to parse `read` attribute: {e}"));
-        } else {
-            panic!("{WRONG_READ_FORMAT}");
-        }
-    }
-
+    let (strategy, bound) =
+        parse_strategy_attrs(&f.attrs, "read", UNSUPPORTED_READ_PROP, WRONG_READ_FORMAT);
     FieldReadAttributes { strategy, bound }
 }
 
@@ -303,31 +324,8 @@ fn generate_read_code(
 
 /// Parses struct-level read attributes for newtypes.
 fn parse_struct_read_attributes(attrs: &[syn::Attribute]) -> FieldReadAttributes {
-    let mut strategy: Option<Strategy> = None;
-    let mut bound: Option<syn::LitInt> = None;
-
-    if let Some(attr) = attrs.iter().find(|a| a.path().is_ident("read")) {
-        if let Meta::List(meta) = attr.meta.clone() {
-            meta.parse_nested_meta(|meta| {
-                if meta.path.is_ident("as") {
-                    let value = meta.value()?;
-                    strategy = Some(value.parse()?);
-                    Ok(())
-                } else if meta.path.is_ident("bound") {
-                    let value = meta.value()?;
-                    let int_lit: syn::LitInt = value.parse()?;
-                    bound = Some(int_lit);
-                    Ok(())
-                } else {
-                    Err(meta.error(UNSUPPORTED_READ_PROP))
-                }
-            })
-            .unwrap_or_else(|e| panic!("Failed to parse `read` attribute: {e}"));
-        } else {
-            panic!("{WRONG_READ_FORMAT}");
-        }
-    }
-
+    let (strategy, bound) =
+        parse_strategy_attrs(attrs, "read", UNSUPPORTED_READ_PROP, WRONG_READ_FORMAT);
     FieldReadAttributes { strategy, bound }
 }
 
@@ -437,30 +435,8 @@ fn read_from_enum(e: syn::DataEnum, name: Ident, attrs: Vec<syn::Attribute>) -> 
 
     // Support reading the enum discriminant using a specified strategy
     // Defaults to reading a varint when no attribute is provided
-    let mut strategy: Option<Strategy> = None;
-    let mut bound: Option<syn::LitInt> = None;
-
-    if let Some(attr) = attrs.iter().find(|a| a.path().is_ident("read")) {
-        if let Meta::List(meta) = attr.meta.clone() {
-            meta.parse_nested_meta(|meta| {
-                if meta.path.is_ident("as") {
-                    let value = meta.value()?;
-                    strategy = Some(value.parse()?);
-                    Ok(())
-                } else if meta.path.is_ident("bound") {
-                    let value = meta.value()?;
-                    let int_lit: syn::LitInt = value.parse()?;
-                    bound = Some(int_lit);
-                    Ok(())
-                } else {
-                    Err(meta.error(UNSUPPORTED_READ_PROP))
-                }
-            })
-            .unwrap_or_else(|e| panic!("Failed to parse `read` attribute: {e}"));
-        } else {
-            panic!("{WRONG_READ_FORMAT}");
-        }
-    }
+    let (strategy, bound) =
+        parse_strategy_attrs(&attrs, "read", UNSUPPORTED_READ_PROP, WRONG_READ_FORMAT);
 
     let read_discriminant = match &strategy.as_ref().map(Strategy::name_str) {
         // Default: read a VarInt (i32)
@@ -531,31 +507,12 @@ struct FieldWriteAttributes {
 }
 
 fn parse_write_attributes(f: &syn::Field) -> FieldWriteAttributes {
-    let mut strategy: Option<Strategy> = None;
-    let mut bound: Option<syn::LitInt> = None;
-
-    if let Some(attr) = f.attrs.iter().find(|a| a.path().is_ident("write")) {
-        if let Meta::List(meta) = attr.meta.clone() {
-            meta.parse_nested_meta(|meta| {
-                if meta.path.is_ident("as") {
-                    let value = meta.value()?;
-                    strategy = Some(value.parse()?);
-                    Ok(())
-                } else if meta.path.is_ident("bound") {
-                    let value = meta.value()?;
-                    let int_lit: syn::LitInt = value.parse()?;
-                    bound = Some(int_lit);
-                    Ok(())
-                } else {
-                    Err(meta.error(UNSUPPORTED_WRITE_PROP))
-                }
-            })
-            .unwrap_or_else(|e| panic!("Failed to parse `write` attribute: {e}"));
-        } else {
-            panic!("{WRONG_WRITE_FORMAT}");
-        }
-    }
-
+    let (strategy, bound) = parse_strategy_attrs(
+        &f.attrs,
+        "write",
+        UNSUPPORTED_WRITE_PROP,
+        WRONG_WRITE_FORMAT,
+    );
     FieldWriteAttributes { strategy, bound }
 }
 
@@ -688,31 +645,8 @@ fn generate_write_code(
 
 /// Parses struct-level write attributes for newtypes.
 fn parse_struct_write_attributes(attrs: &[syn::Attribute]) -> FieldWriteAttributes {
-    let mut strategy: Option<Strategy> = None;
-    let mut bound: Option<syn::LitInt> = None;
-
-    if let Some(attr) = attrs.iter().find(|a| a.path().is_ident("write")) {
-        if let Meta::List(meta) = attr.meta.clone() {
-            meta.parse_nested_meta(|meta| {
-                if meta.path.is_ident("as") {
-                    let value = meta.value()?;
-                    strategy = Some(value.parse()?);
-                    Ok(())
-                } else if meta.path.is_ident("bound") {
-                    let value = meta.value()?;
-                    let int_lit: syn::LitInt = value.parse()?;
-                    bound = Some(int_lit);
-                    Ok(())
-                } else {
-                    Err(meta.error(UNSUPPORTED_WRITE_PROP))
-                }
-            })
-            .unwrap_or_else(|e| panic!("Failed to parse `write` attribute: {e}"));
-        } else {
-            panic!("{WRONG_WRITE_FORMAT}");
-        }
-    }
-
+    let (strategy, bound) =
+        parse_strategy_attrs(attrs, "write", UNSUPPORTED_WRITE_PROP, WRONG_WRITE_FORMAT);
     FieldWriteAttributes { strategy, bound }
 }
 
@@ -797,33 +731,13 @@ fn write_to_struct(
 }
 
 fn write_to_enum(name: Ident, attrs: Vec<syn::Attribute>) -> TokenStream {
-    let mut strategy: Option<Strategy> = None;
-    let mut bound: Option<syn::LitInt> = None;
+    assert!(
+        attrs.iter().any(|a| a.path().is_ident("write")),
+        "WriteTo for enums requires the `write` attribute: #[write(as = VarInt)]"
+    );
 
-    if let Some(attr) = attrs.iter().find(|a| a.path().is_ident("write")) {
-        if let Meta::List(meta) = attr.meta.clone() {
-            meta.parse_nested_meta(|meta| {
-                if meta.path.is_ident("as") {
-                    let value = meta.value()?;
-                    strategy = Some(value.parse()?);
-                    Ok(())
-                } else if meta.path.is_ident("bound") {
-                    let value = meta.value()?;
-                    let int_lit: syn::LitInt = value.parse()?;
-                    bound = Some(int_lit);
-                    Ok(())
-                } else {
-                    Err(meta.error(UNSUPPORTED_WRITE_PROP))
-                }
-            })
-            .unwrap_or_else(|e| panic!("Failed to parse `write` attribute: {e}"));
-        } else {
-            panic!("{WRONG_WRITE_FORMAT}");
-        }
-    } else {
-        panic!("WriteTo for enums requires the `write` attribute: #[write(as = VarInt)]")
-    }
-
+    let (strategy, bound) =
+        parse_strategy_attrs(&attrs, "write", UNSUPPORTED_WRITE_PROP, WRONG_WRITE_FORMAT);
     let strategy = strategy.expect("WriteTo for enums requires `as = ...` in the write attribute");
     let strategy_name = strategy.name_str();
 
