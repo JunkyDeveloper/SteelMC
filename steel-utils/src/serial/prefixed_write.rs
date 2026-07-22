@@ -8,17 +8,7 @@ impl PrefixedWrite for String {
         writer: &mut impl Write,
         bound: usize,
     ) -> Result<()> {
-        if self.len() > bound {
-            Err(Error::other("Too long"))?;
-        }
-
-        let len: P = self
-            .len()
-            .try_into()
-            .map_err(|_| Error::other("This cant happen"))?;
-        len.write(writer)?;
-
-        writer.write_all(self.as_bytes())
+        self.as_str().write_prefixed_bound::<P>(writer, bound)
     }
 }
 
@@ -48,22 +38,7 @@ impl<T: WriteTo> PrefixedWrite for Vec<T> {
         writer: &mut impl Write,
         bound: usize,
     ) -> Result<()> {
-        if self.len() > bound {
-            Err(Error::other("Too long"))?;
-        }
-
-        let len: P = self
-            .len()
-            .try_into()
-            .map_err(|_| Error::other("This cant happen"))?;
-
-        len.write(writer)?;
-
-        for property in self {
-            property.write(writer)?;
-        }
-
-        Ok(())
+        self.as_slice().write_prefixed_bound::<P>(writer, bound)
     }
 }
 

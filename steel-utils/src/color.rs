@@ -4,6 +4,21 @@ use std::io::{Cursor, Result, Write};
 
 use crate::serial::{ReadFrom, WriteTo};
 
+/// Extracts the red channel (bits 16-23) from a packed color integer.
+const fn packed_red(packed: i32) -> u8 {
+    (packed as u32 >> 16) as u8
+}
+
+/// Extracts the green channel (bits 8-15) from a packed color integer.
+const fn packed_green(packed: i32) -> u8 {
+    (packed as u32 >> 8) as u8
+}
+
+/// Extracts the blue channel (bits 0-7) from a packed color integer.
+const fn packed_blue(packed: i32) -> u8 {
+    packed as u8
+}
+
 /// A packed color interpreted through its red, green, and blue channels.
 ///
 /// The upper byte is preserved because Vanilla's RGB codecs do not normalize
@@ -28,19 +43,19 @@ impl RgbColor {
     /// Returns the red channel.
     #[must_use]
     pub const fn red(self) -> u8 {
-        (self.0 as u32 >> 16) as u8
+        packed_red(self.0)
     }
 
     /// Returns the green channel.
     #[must_use]
     pub const fn green(self) -> u8 {
-        (self.0 as u32 >> 8) as u8
+        packed_green(self.0)
     }
 
     /// Returns the blue channel.
     #[must_use]
     pub const fn blue(self) -> u8 {
-        self.0 as u8
+        packed_blue(self.0)
     }
 
     /// Replaces the ignored upper byte with an alpha channel.
@@ -89,19 +104,19 @@ impl ArgbColor {
     /// Returns the red channel.
     #[must_use]
     pub const fn red(self) -> u8 {
-        (self.0 as u32 >> 16) as u8
+        packed_red(self.0)
     }
 
     /// Returns the green channel.
     #[must_use]
     pub const fn green(self) -> u8 {
-        (self.0 as u32 >> 8) as u8
+        packed_green(self.0)
     }
 
     /// Returns the blue channel.
     #[must_use]
     pub const fn blue(self) -> u8 {
-        self.0 as u8
+        packed_blue(self.0)
     }
 
     /// Returns the same packed bits with RGB semantics.

@@ -222,12 +222,7 @@ impl JavaTcpClient {
         let packet = EncodedPacket::from_bare(packet, compression, protocol)
             .expect("Failed to encode packet");
 
-        if let Err(err) = Self::write_network_packet(&self.network_writer, &packet).await
-            && !self.cancel_token.is_cancelled()
-        {
-            log::warn!("Failed to send packet to client {}: {}", self.id, err);
-            self.close();
-        }
+        self.send_packet_now(&packet).await;
     }
 
     /// Sends an already encoded packet immediately, without queuing.
@@ -260,15 +255,7 @@ impl JavaTcpClient {
         let compression = self.compression.load();
         let protocol = self.protocol.load();
         let packet = EncodedPacket::from_bare(packet, compression, protocol)?;
-        self.outgoing_queue
-            .send(OutboundPacket::Packet(packet))
-            .map_err(|e| {
-                PacketError::SendError(format!(
-                    "Failed to send packet to client {}: {}",
-                    self.id, e
-                ))
-            })?;
-        Ok(())
+        self.send_packet(packet)
     }
 
     /// Queues an already encoded packet to be sent.

@@ -25,65 +25,21 @@ impl WriteTo for bool {
     }
 }
 
-impl WriteTo for u8 {
-    fn write(&self, writer: &mut impl Write) -> Result<()> {
-        writer.write_all(&self.to_be_bytes())
-    }
+/// Implements `WriteTo` for fixed-width primitives by writing their
+/// big-endian byte representation.
+macro_rules! impl_write_be_bytes {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl WriteTo for $ty {
+                fn write(&self, writer: &mut impl Write) -> Result<()> {
+                    writer.write_all(&self.to_be_bytes())
+                }
+            }
+        )+
+    };
 }
 
-impl WriteTo for u16 {
-    fn write(&self, writer: &mut impl Write) -> Result<()> {
-        writer.write_all(&self.to_be_bytes())
-    }
-}
-
-impl WriteTo for u32 {
-    fn write(&self, writer: &mut impl Write) -> Result<()> {
-        writer.write_all(&self.to_be_bytes())
-    }
-}
-
-impl WriteTo for u64 {
-    fn write(&self, writer: &mut impl Write) -> Result<()> {
-        writer.write_all(&self.to_be_bytes())
-    }
-}
-
-impl WriteTo for i8 {
-    fn write(&self, writer: &mut impl Write) -> Result<()> {
-        writer.write_all(&self.to_be_bytes())
-    }
-}
-
-impl WriteTo for i16 {
-    fn write(&self, writer: &mut impl Write) -> Result<()> {
-        writer.write_all(&self.to_be_bytes())
-    }
-}
-
-impl WriteTo for i32 {
-    fn write(&self, writer: &mut impl Write) -> Result<()> {
-        writer.write_all(&self.to_be_bytes())
-    }
-}
-
-impl WriteTo for i64 {
-    fn write(&self, writer: &mut impl Write) -> Result<()> {
-        writer.write_all(&self.to_be_bytes())
-    }
-}
-
-impl WriteTo for f32 {
-    fn write(&self, writer: &mut impl Write) -> Result<()> {
-        writer.write_all(&self.to_be_bytes())
-    }
-}
-
-impl WriteTo for f64 {
-    fn write(&self, writer: &mut impl Write) -> Result<()> {
-        writer.write_all(&self.to_be_bytes())
-    }
-}
+impl_write_be_bytes!(u8, u16, u32, u64, i8, i16, i32, i64, f32, f64);
 
 impl<T: WriteTo> WriteTo for Option<T> {
     fn write(&self, writer: &mut impl Write) -> Result<()> {

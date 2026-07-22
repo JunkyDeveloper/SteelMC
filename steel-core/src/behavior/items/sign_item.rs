@@ -68,45 +68,15 @@ impl SignItem {
 
 impl ItemBehavior for SignItem {
     fn use_on(&self, context: &mut UseOnContext) -> InteractionResult {
-        let mut place_context = context.build_place_context();
-        if !place_context.can_place() {
-            return InteractionResult::Fail;
+        // Vanilla `SignItem` extends `StandingAndWallBlockItem` and only overrides
+        // placement to open the sign editor afterwards. Delegate the placement to
+        // `inner` and add the sign-specific editor step on success.
+        let place_pos = context.build_place_context().place_pos();
+        let result = self.inner.use_on(context);
+        if result == InteractionResult::Success {
+            context.player.open_sign_editor(place_pos, true);
         }
-        let place_pos = place_context.place_pos();
-
-        let Some(new_state) = self.inner.get_placement_state(&place_context) else {
-            return InteractionResult::Fail;
-        };
-
-        if !context
-            .world
-            .set_block(place_pos, new_state, UpdateFlags::UPDATE_ALL_IMMEDIATE)
-        {
-            return InteractionResult::Fail;
-        }
-        let placed_state = context.world.get_block_state(place_pos);
-
-        let block = self.inner.get_block_for_state(new_state);
-        let sound_type = &block.config.sound_type;
-        context.world.play_block_sound(
-            sound_type.place_sound,
-            place_pos,
-            sound_type.volume,
-            sound_type.pitch,
-            Some(context.player.id()),
-        );
-        context.world.game_event(
-            &vanilla_game_events::BLOCK_PLACE,
-            place_pos,
-            &GameEventContext::new(Some(context.player), Some(placed_state)),
-        );
-
-        place_context.with_item_mut(|item| item.shrink(1));
-
-        // Sign-specific: Open the sign editor for the player (front text by default)
-        context.player.open_sign_editor(place_pos, true);
-
-        InteractionResult::Success
+        result
     }
 }
 

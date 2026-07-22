@@ -19,85 +19,23 @@ impl ReadFrom for bool {
     }
 }
 
-impl ReadFrom for u8 {
-    fn read(data: &mut Cursor<&[u8]>) -> Result<Self> {
-        let mut buf = [0; size_of::<Self>()];
-        data.read_exact(&mut buf)?;
-        Ok(Self::from_be_bytes(buf))
-    }
+/// Implements `ReadFrom` for fixed-width primitives by reading their
+/// big-endian byte representation.
+macro_rules! impl_read_be_bytes {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl ReadFrom for $ty {
+                fn read(data: &mut Cursor<&[u8]>) -> Result<Self> {
+                    let mut buf = [0; size_of::<Self>()];
+                    data.read_exact(&mut buf)?;
+                    Ok(Self::from_be_bytes(buf))
+                }
+            }
+        )+
+    };
 }
 
-impl ReadFrom for u16 {
-    fn read(data: &mut Cursor<&[u8]>) -> Result<Self> {
-        let mut buf = [0; size_of::<Self>()];
-        data.read_exact(&mut buf)?;
-        Ok(Self::from_be_bytes(buf))
-    }
-}
-
-impl ReadFrom for u32 {
-    fn read(data: &mut Cursor<&[u8]>) -> Result<Self> {
-        let mut buf = [0; size_of::<Self>()];
-        data.read_exact(&mut buf)?;
-        Ok(Self::from_be_bytes(buf))
-    }
-}
-
-impl ReadFrom for u64 {
-    fn read(data: &mut Cursor<&[u8]>) -> Result<Self> {
-        let mut buf = [0; size_of::<Self>()];
-        data.read_exact(&mut buf)?;
-        Ok(Self::from_be_bytes(buf))
-    }
-}
-
-impl ReadFrom for i8 {
-    fn read(data: &mut Cursor<&[u8]>) -> Result<Self> {
-        let mut buf = [0; size_of::<Self>()];
-        data.read_exact(&mut buf)?;
-        Ok(Self::from_be_bytes(buf))
-    }
-}
-
-impl ReadFrom for i16 {
-    fn read(data: &mut Cursor<&[u8]>) -> Result<Self> {
-        let mut buf = [0; size_of::<Self>()];
-        data.read_exact(&mut buf)?;
-        Ok(Self::from_be_bytes(buf))
-    }
-}
-
-impl ReadFrom for i32 {
-    fn read(data: &mut Cursor<&[u8]>) -> Result<Self> {
-        let mut buf = [0; size_of::<Self>()];
-        data.read_exact(&mut buf)?;
-        Ok(Self::from_be_bytes(buf))
-    }
-}
-
-impl ReadFrom for i64 {
-    fn read(data: &mut Cursor<&[u8]>) -> Result<Self> {
-        let mut buf = [0; size_of::<Self>()];
-        data.read_exact(&mut buf)?;
-        Ok(Self::from_be_bytes(buf))
-    }
-}
-
-impl ReadFrom for f32 {
-    fn read(data: &mut Cursor<&[u8]>) -> Result<Self> {
-        let mut buf = [0; size_of::<Self>()];
-        data.read_exact(&mut buf)?;
-        Ok(Self::from_be_bytes(buf))
-    }
-}
-
-impl ReadFrom for f64 {
-    fn read(data: &mut Cursor<&[u8]>) -> Result<Self> {
-        let mut buf = [0; size_of::<Self>()];
-        data.read_exact(&mut buf)?;
-        Ok(Self::from_be_bytes(buf))
-    }
-}
+impl_read_be_bytes!(u8, u16, u32, u64, i8, i16, i32, i64, f32, f64);
 
 impl<T: ReadFrom> ReadFrom for Option<T> {
     fn read(data: &mut Cursor<&[u8]>) -> Result<Self> {

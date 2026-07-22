@@ -487,33 +487,32 @@ pub fn load_or_create(path: &Path) -> Result<SteelConfig, String> {
     Ok(config)
 }
 
-fn load_or_create_worlds(path: &Path) -> Result<WorldsConfig, String> {
+/// Reads and parses a TOML config at `path`, or writes `default` and parses
+/// that when the file does not yet exist. `label` names the file in error
+/// messages (e.g. `"worlds config"`).
+fn load_or_create_toml<T: serde::de::DeserializeOwned>(
+    path: &Path,
+    default: &str,
+    label: &str,
+) -> Result<T, String> {
     if path.exists() {
-        let worlds_str = fs::read_to_string(path)
-            .map_err(|e| format!("failed to read worlds config file {}: {e}", path.display()))?;
-        toml::from_str(worlds_str.as_str())
-            .map_err(|e| format!("failed to parse worlds config {}: {e}", path.display()))
+        let contents = fs::read_to_string(path)
+            .map_err(|e| format!("failed to read {label} {}: {e}", path.display()))?;
+        toml::from_str(&contents)
+            .map_err(|e| format!("failed to parse {label} {}: {e}", path.display()))
     } else {
-        fs::write(path, DEFAULT_WORLDS)
-            .map_err(|e| format!("failed to write worlds config file {}: {e}", path.display()))?;
-        toml::from_str(DEFAULT_WORLDS)
-            .map_err(|e| format!("failed to parse default worlds config: {e}"))
+        fs::write(path, default)
+            .map_err(|e| format!("failed to write {label} {}: {e}", path.display()))?;
+        toml::from_str(default).map_err(|e| format!("failed to parse default {label}: {e}"))
     }
 }
 
+fn load_or_create_worlds(path: &Path) -> Result<WorldsConfig, String> {
+    load_or_create_toml(path, DEFAULT_WORLDS, "worlds config")
+}
+
 fn load_or_create_groups(path: &Path) -> Result<PermissionGroupsConfig, String> {
-    let config: PermissionGroupsConfig = if path.exists() {
-        let contents = fs::read_to_string(path)
-            .map_err(|error| format!("failed to read groups config {}: {error}", path.display()))?;
-        toml::from_str(&contents)
-            .map_err(|error| format!("failed to parse groups config {}: {error}", path.display()))?
-    } else {
-        fs::write(path, DEFAULT_GROUPS).map_err(|error| {
-            format!("failed to write groups config {}: {error}", path.display())
-        })?;
-        toml::from_str(DEFAULT_GROUPS)
-            .map_err(|error| format!("failed to parse default groups config: {error}"))?
-    };
+    let config: PermissionGroupsConfig = load_or_create_toml(path, DEFAULT_GROUPS, "groups config")?;
     PermissionGroups::from_config(config.clone()).map_err(|error| {
         format!(
             "failed to validate groups config {}: {error}",
