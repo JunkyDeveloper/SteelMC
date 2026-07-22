@@ -14,16 +14,14 @@ use steel_registry::blocks::block_state_ext::BlockStateExt;
 use steel_registry::blocks::properties::{BlockStateProperties, Direction};
 use steel_registry::blocks::shapes::SupportType;
 use steel_registry::vanilla_block_tags::BlockTag;
-use steel_registry::vanilla_game_events;
-use steel_utils::types::UpdateFlags;
 use steel_utils::{BlockPos, BlockStateId};
 
-use super::standing_and_wall_block_item::StandingAndWallBlockItem;
+use super::standing_and_wall_block_item::{
+    StandingAndWallBlockItem, finish_block_item_placement,
+};
 use crate::behavior::context::{InteractionResult, UseOnContext};
 use crate::behavior::{BLOCK_BEHAVIORS, ItemBehavior};
-use crate::entity::Entity;
 use crate::world::World;
-use crate::world::game_event_context::GameEventContext;
 
 /// Behavior for sign items that place sign blocks and open the editor.
 ///
@@ -217,35 +215,12 @@ impl ItemBehavior for HangingSignItem {
             return InteractionResult::Fail;
         };
 
-        if !context
-            .world
-            .set_block(place_pos, state, UpdateFlags::UPDATE_ALL_IMMEDIATE)
-        {
-            return InteractionResult::Fail;
+        let result =
+            finish_block_item_placement(context, &mut place_context, place_pos, state, placed_block);
+        if result == InteractionResult::Success {
+            // Sign-specific: Open the sign editor for the player (front text by default)
+            context.player.open_sign_editor(place_pos, true);
         }
-        let placed_state = context.world.get_block_state(place_pos);
-
-        if let Some(block) = placed_block {
-            let sound_type = &block.config.sound_type;
-            context.world.play_block_sound(
-                sound_type.place_sound,
-                place_pos,
-                sound_type.volume,
-                sound_type.pitch,
-                Some(context.player.id()),
-            );
-        }
-        context.world.game_event(
-            &vanilla_game_events::BLOCK_PLACE,
-            place_pos,
-            &GameEventContext::new(Some(context.player), Some(placed_state)),
-        );
-
-        place_context.with_item_mut(|item| item.shrink(1));
-
-        // Sign-specific: Open the sign editor for the player (front text by default)
-        context.player.open_sign_editor(place_pos, true);
-
-        InteractionResult::Success
+        result
     }
 }

@@ -19,6 +19,57 @@ use crate::behavior::block::BlockBehavior;
 use crate::behavior::context::BlockPlaceContext;
 use crate::world::{LevelReader, ScheduledTickAccess};
 
+/// Standing-torch survival rule (shared by plain and redstone torches): requires
+/// the block below to provide center support on its top face.
+pub(crate) fn standing_torch_can_survive(world: &dyn LevelReader, pos: BlockPos) -> bool {
+    let below_pos = pos.below();
+    let below_state = world.get_block_state(below_pos);
+    below_state.is_face_sturdy_for_at(below_pos, Direction::Up, SupportType::Center)
+}
+
+/// Wall-torch survival rule (shared by plain and redstone wall torches): requires
+/// the block behind (opposite of facing) to provide a sturdy face.
+pub(crate) fn wall_torch_can_survive(
+    state: BlockStateId,
+    world: &dyn LevelReader,
+    pos: BlockPos,
+) -> bool {
+    let facing: Direction = state.get_value(&BlockStateProperties::HORIZONTAL_FACING);
+    let attach_direction = facing.opposite();
+    let attach_pos = attach_direction.relative(pos);
+    let attach_state = world.get_block_state(attach_pos);
+    attach_state.is_face_sturdy_at(attach_pos, facing)
+}
+
+/// Standing-torch neighbor update (shared): breaks when the block below is removed.
+pub(crate) fn standing_torch_update_shape(
+    state: BlockStateId,
+    world: &dyn ScheduledTickAccess,
+    pos: BlockPos,
+    direction: Direction,
+) -> BlockStateId {
+    if direction == Direction::Down && !standing_torch_can_survive(world, pos) {
+        return REGISTRY.blocks.get_default_state_id(&vanilla_blocks::AIR);
+    }
+    state
+}
+
+/// Wall-torch neighbor update (shared): breaks when the attachment block is removed.
+pub(crate) fn wall_torch_update_shape(
+    state: BlockStateId,
+    world: &dyn ScheduledTickAccess,
+    pos: BlockPos,
+    direction: Direction,
+) -> BlockStateId {
+    let facing: Direction = state.get_value(&BlockStateProperties::HORIZONTAL_FACING);
+    let attach_direction = facing.opposite();
+
+    if direction == attach_direction && !wall_torch_can_survive(state, world, pos) {
+        return REGISTRY.blocks.get_default_state_id(&vanilla_blocks::AIR);
+    }
+    state
+}
+
 /// Behavior for standing torch blocks (torch, `soul_torch`, `copper_torch`).
 ///
 /// Standing torches are placed on top of blocks and require center support
@@ -40,9 +91,7 @@ impl BlockBehavior for TorchBlock {
     /// Checks if a torch can survive at the given position.
     /// Requires the block below to provide center support on its top face.
     fn can_survive(&self, _state: BlockStateId, world: &dyn LevelReader, pos: BlockPos) -> bool {
-        let below_pos = pos.below();
-        let below_state = world.get_block_state(below_pos);
-        below_state.is_face_sturdy_for_at(below_pos, Direction::Up, SupportType::Center)
+        standing_torch_can_survive(world, pos)
     }
 
     fn update_shape(
@@ -54,11 +103,7 @@ impl BlockBehavior for TorchBlock {
         _neighbor_pos: BlockPos,
         _neighbor_state: BlockStateId,
     ) -> BlockStateId {
-        // Standing torches break when the block below is removed
-        if direction == Direction::Down && !self.can_survive(state, world, pos) {
-            return REGISTRY.blocks.get_default_state_id(&vanilla_blocks::AIR);
-        }
-        state
+        standing_torch_update_shape(state, world, pos, direction)
     }
 
     fn get_state_for_placement(&self, context: &BlockPlaceContext<'_>) -> Option<BlockStateId> {
@@ -93,11 +138,7 @@ impl BlockBehavior for WallTorchBlock {
     /// Checks if a wall torch can survive at the given position.
     /// Requires the block behind (opposite of facing) to provide a sturdy face.
     fn can_survive(&self, state: BlockStateId, world: &dyn LevelReader, pos: BlockPos) -> bool {
-        let facing: Direction = state.get_value(&BlockStateProperties::HORIZONTAL_FACING);
-        let attach_direction = facing.opposite();
-        let attach_pos = attach_direction.relative(pos);
-        let attach_state = world.get_block_state(attach_pos);
-        attach_state.is_face_sturdy_at(attach_pos, facing)
+        wall_torch_can_survive(state, world, pos)
     }
 
     fn update_shape(
@@ -109,14 +150,7 @@ impl BlockBehavior for WallTorchBlock {
         _neighbor_pos: BlockPos,
         _neighbor_state: BlockStateId,
     ) -> BlockStateId {
-        // Wall torches break when the block they're attached to is removed
-        let facing: Direction = state.get_value(&BlockStateProperties::HORIZONTAL_FACING);
-        let attach_direction = facing.opposite();
-
-        if direction == attach_direction && !self.can_survive(state, world, pos) {
-            return REGISTRY.blocks.get_default_state_id(&vanilla_blocks::AIR);
-        }
-        state
+        wall_torch_update_shape(state, world, pos, direction)
     }
 
     fn get_state_for_placement(&self, context: &BlockPlaceContext<'_>) -> Option<BlockStateId> {

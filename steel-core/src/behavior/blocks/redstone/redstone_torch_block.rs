@@ -4,15 +4,16 @@
 //! property and are intended to be expanded with redstone logic later.
 
 use steel_macros::block_behavior;
-use steel_registry::REGISTRY;
 use steel_registry::blocks::BlockRef;
 use steel_registry::blocks::block_state_ext::BlockStateExt;
 use steel_registry::blocks::properties::{BlockStateProperties, Direction};
-use steel_registry::blocks::shapes::SupportType;
-use steel_registry::vanilla_blocks;
 use steel_utils::{BlockPos, BlockStateId};
 
 use crate::behavior::block::BlockBehavior;
+use crate::behavior::blocks::decoration::torch_block::{
+    standing_torch_can_survive, standing_torch_update_shape, wall_torch_can_survive,
+    wall_torch_update_shape,
+};
 use crate::behavior::context::BlockPlaceContext;
 use crate::world::{LevelReader, ScheduledTickAccess};
 
@@ -37,9 +38,7 @@ impl BlockBehavior for RedstoneTorchBlock {
     /// Checks if a redstone torch can survive at the given position.
     /// Requires the block below to provide center support on its top face.
     fn can_survive(&self, _state: BlockStateId, world: &dyn LevelReader, pos: BlockPos) -> bool {
-        let below_pos = pos.below();
-        let below_state = world.get_block_state(below_pos);
-        below_state.is_face_sturdy_for_at(below_pos, Direction::Up, SupportType::Center)
+        standing_torch_can_survive(world, pos)
     }
 
     fn update_shape(
@@ -51,10 +50,7 @@ impl BlockBehavior for RedstoneTorchBlock {
         _neighbor_pos: BlockPos,
         _neighbor_state: BlockStateId,
     ) -> BlockStateId {
-        if direction == Direction::Down && !self.can_survive(state, world, pos) {
-            return REGISTRY.blocks.get_default_state_id(&vanilla_blocks::AIR);
-        }
-        state
+        standing_torch_update_shape(state, world, pos, direction)
     }
 
     fn get_state_for_placement(&self, context: &BlockPlaceContext<'_>) -> Option<BlockStateId> {
@@ -89,11 +85,7 @@ impl BlockBehavior for RedstoneWallTorchBlock {
     /// Checks if a wall redstone torch can survive at the given position.
     /// Requires the block behind (opposite of facing) to provide a sturdy face.
     fn can_survive(&self, state: BlockStateId, world: &dyn LevelReader, pos: BlockPos) -> bool {
-        let facing: Direction = state.get_value(&BlockStateProperties::HORIZONTAL_FACING);
-        let attach_direction = facing.opposite();
-        let attach_pos = attach_direction.relative(pos);
-        let attach_state = world.get_block_state(attach_pos);
-        attach_state.is_face_sturdy_at(attach_pos, facing)
+        wall_torch_can_survive(state, world, pos)
     }
 
     fn update_shape(
@@ -105,13 +97,7 @@ impl BlockBehavior for RedstoneWallTorchBlock {
         _neighbor_pos: BlockPos,
         _neighbor_state: BlockStateId,
     ) -> BlockStateId {
-        let facing: Direction = state.get_value(&BlockStateProperties::HORIZONTAL_FACING);
-        let attach_direction = facing.opposite();
-
-        if direction == attach_direction && !self.can_survive(state, world, pos) {
-            return REGISTRY.blocks.get_default_state_id(&vanilla_blocks::AIR);
-        }
-        state
+        wall_torch_update_shape(state, world, pos, direction)
     }
 
     fn get_state_for_placement(&self, context: &BlockPlaceContext<'_>) -> Option<BlockStateId> {

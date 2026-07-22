@@ -151,15 +151,37 @@ impl ItemBehavior for StandingAndWallBlockItem {
             return InteractionResult::Fail;
         };
 
-        if !context
-            .world
-            .set_block(place_pos, new_state, UpdateFlags::UPDATE_ALL_IMMEDIATE)
-        {
-            return InteractionResult::Fail;
-        }
-        let placed_state = context.world.get_block_state(place_pos);
+        let sound_block = self.get_block_for_state(new_state);
+        finish_block_item_placement(
+            context,
+            &mut place_context,
+            place_pos,
+            new_state,
+            Some(sound_block),
+        )
+    }
+}
 
-        let block = self.get_block_for_state(new_state);
+/// Finalizes a block-item placement shared by `StandingAndWallBlockItem` and the
+/// hanging-sign item: sets the block, plays `sound_block`'s placement sound (when
+/// a placed block is known), fires the `BLOCK_PLACE` game event, and shrinks the
+/// held stack. Returns [`InteractionResult::Fail`] if the block could not be set.
+pub(crate) fn finish_block_item_placement(
+    context: &UseOnContext,
+    place_context: &mut BlockPlaceContext<'_>,
+    place_pos: steel_utils::BlockPos,
+    state: steel_utils::BlockStateId,
+    sound_block: Option<BlockRef>,
+) -> InteractionResult {
+    if !context
+        .world
+        .set_block(place_pos, state, UpdateFlags::UPDATE_ALL_IMMEDIATE)
+    {
+        return InteractionResult::Fail;
+    }
+    let placed_state = context.world.get_block_state(place_pos);
+
+    if let Some(block) = sound_block {
         let sound_type = &block.config.sound_type;
         context.world.play_block_sound(
             sound_type.place_sound,
@@ -168,14 +190,14 @@ impl ItemBehavior for StandingAndWallBlockItem {
             sound_type.pitch,
             Some(context.player.id()),
         );
-        context.world.game_event(
-            &vanilla_game_events::BLOCK_PLACE,
-            place_pos,
-            &GameEventContext::new(Some(context.player), Some(placed_state)),
-        );
-
-        place_context.with_item_mut(|item| item.shrink(1));
-
-        InteractionResult::Success
     }
+    context.world.game_event(
+        &vanilla_game_events::BLOCK_PLACE,
+        place_pos,
+        &GameEventContext::new(Some(context.player), Some(placed_state)),
+    );
+
+    place_context.with_item_mut(|item| item.shrink(1));
+
+    InteractionResult::Success
 }
