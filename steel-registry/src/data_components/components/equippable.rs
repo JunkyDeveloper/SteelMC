@@ -14,7 +14,6 @@ use steel_utils::{
     Identifier,
     codec::VarInt,
     hash::{ComponentHasher, HashComponent, push_hash_entry, sort_map_entries},
-    nbt::NbtNumeric as _,
     serial::{ReadFrom, WriteTo},
 };
 
@@ -219,12 +218,7 @@ fn parse_identifier_nbt(tag: simdnbt::borrow::NbtTag) -> Option<Identifier> {
     Identifier::from_str(&tag.string()?.to_str()).ok()
 }
 
-fn optional_bool(tag: Option<simdnbt::borrow::NbtTag<'_, '_>>, default: bool) -> Option<bool> {
-    match tag {
-        Some(tag) => tag.codec_bool(),
-        None => Some(default),
-    }
-}
+use steel_utils::nbt::optional_bool;
 
 #[cfg(test)]
 mod tests {

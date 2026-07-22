@@ -415,12 +415,7 @@ fn int_list_from_nbt(tag: &NbtTag) -> Option<Vec<i32>> {
         .collect()
 }
 
-fn optional_bool(tag: Option<&NbtTag>, default: bool) -> Option<bool> {
-    match tag {
-        Some(tag) => tag.codec_bool(),
-        None => Some(default),
-    }
-}
+use steel_utils::nbt::optional_bool;
 
 fn write_int_list(values: &[i32], writer: &mut impl Write) -> Result<()> {
     write_count(values.len(), i32::MAX as usize, writer)?;

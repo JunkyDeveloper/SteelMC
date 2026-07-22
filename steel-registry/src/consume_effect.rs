@@ -8,7 +8,6 @@ use simdnbt::ToNbtTag as _;
 use simdnbt::owned::{NbtCompound, NbtList, NbtTag};
 use steel_utils::codec::VarInt;
 use steel_utils::hash::{ComponentHasher, HashComponent, HashEntry, hash_entries, push_hash_entry};
-use steel_utils::nbt::NbtNumeric as _;
 use steel_utils::serial::{ReadFrom, WriteTo};
 use steel_utils::{Downcast as _, DowncastType, DowncastTypeKey, ErasedType, Identifier};
 
@@ -636,12 +635,7 @@ const fn is_float_in_unit_range(value: f32) -> bool {
     value.is_finite() && !value.is_sign_negative() && value <= 1.0
 }
 
-fn optional_f32(tag: Option<&NbtTag>, default: f32) -> Option<f32> {
-    match tag {
-        Some(tag) => tag.codec_f32(),
-        None => Some(default),
-    }
-}
+use steel_utils::nbt::optional_f32;
 
 fn write_count(count: usize, writer: &mut Vec<u8>, name: &str) -> Result<()> {
     let count = i32::try_from(count).map_err(|_| Error::other(format!("{name} list too large")))?;

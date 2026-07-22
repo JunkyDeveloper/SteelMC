@@ -350,19 +350,7 @@ fn details_hash_entries(details: &MobEffectInstanceDetails) -> Vec<HashEntry> {
     entries
 }
 
-fn optional_i32(tag: Option<&NbtTag>, default: i32) -> Option<i32> {
-    match tag {
-        Some(tag) => tag.codec_i32(),
-        None => Some(default),
-    }
-}
-
-fn optional_bool(tag: Option<&NbtTag>, default: bool) -> Option<bool> {
-    match tag {
-        Some(tag) => tag.codec_bool(),
-        None => Some(default),
-    }
-}
+use steel_utils::nbt::{optional_bool, optional_i32};
 
 #[cfg(test)]
 mod tests {

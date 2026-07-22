@@ -87,8 +87,8 @@ impl KineticWeaponCondition {
     fn from_owned_nbt(tag: &NbtTag) -> Option<Self> {
         let compound = tag.compound()?;
         let max_duration_ticks = compound.get("max_duration_ticks")?.codec_i32()?;
-        let min_speed = optional_owned_f32(compound.get("min_speed"), 0.0)?;
-        let min_relative_speed = optional_owned_f32(compound.get("min_relative_speed"), 0.0)?;
+        let min_speed = optional_f32(compound.get("min_speed"), 0.0)?;
+        let min_relative_speed = optional_f32(compound.get("min_relative_speed"), 0.0)?;
         Self::new(max_duration_ticks, min_speed, min_relative_speed).ok()
     }
 }
@@ -384,26 +384,7 @@ impl HashComponent for KineticWeapon {
     }
 }
 
-fn optional_i32(tag: Option<simdnbt::borrow::NbtTag<'_, '_>>, default: i32) -> Option<i32> {
-    match tag {
-        Some(tag) => tag.codec_i32(),
-        None => Some(default),
-    }
-}
-
-fn optional_f32<T: steel_utils::nbt::NbtNumeric>(tag: Option<T>, default: f32) -> Option<f32> {
-    match tag {
-        Some(tag) => tag.codec_f32(),
-        None => Some(default),
-    }
-}
-
-fn optional_owned_f32(tag: Option<&NbtTag>, default: f32) -> Option<f32> {
-    match tag {
-        Some(tag) => tag.codec_f32(),
-        None => Some(default),
-    }
-}
+use steel_utils::nbt::{optional_f32, optional_i32};
 
 const fn java_float_equals(left: f32, right: f32) -> bool {
     (left.is_nan() && right.is_nan()) || left.to_bits() == right.to_bits()

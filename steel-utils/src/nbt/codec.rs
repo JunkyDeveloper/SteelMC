@@ -110,6 +110,52 @@ impl NbtNumeric for BorrowedNbtTag<'_, '_> {
     }
 }
 
+// Forwarding impl so the `optional_*` helpers accept both owned tags passed by
+// reference (`Option<&NbtTag>`) and borrowed tags passed by value.
+impl<T: NbtNumeric + ?Sized> NbtNumeric for &T {
+    fn codec_bool(&self) -> Option<bool> {
+        (**self).codec_bool()
+    }
+
+    fn codec_i32(&self) -> Option<i32> {
+        (**self).codec_i32()
+    }
+
+    fn codec_f32(&self) -> Option<f32> {
+        (**self).codec_f32()
+    }
+
+    fn codec_f64(&self) -> Option<f64> {
+        (**self).codec_f64()
+    }
+}
+
+/// Decodes an optional `Codec.BOOL` field, falling back to `default` when the
+/// field is absent. Returns `None` only when the tag is present but fails to
+/// coerce, mirroring vanilla's optional-field codecs.
+pub fn optional_bool<T: NbtNumeric>(tag: Option<T>, default: bool) -> Option<bool> {
+    match tag {
+        Some(tag) => tag.codec_bool(),
+        None => Some(default),
+    }
+}
+
+/// Decodes an optional `Codec.INT` field, falling back to `default` when absent.
+pub fn optional_i32<T: NbtNumeric>(tag: Option<T>, default: i32) -> Option<i32> {
+    match tag {
+        Some(tag) => tag.codec_i32(),
+        None => Some(default),
+    }
+}
+
+/// Decodes an optional `Codec.FLOAT` field, falling back to `default` when absent.
+pub fn optional_f32<T: NbtNumeric>(tag: Option<T>, default: f32) -> Option<f32> {
+    match tag {
+        Some(tag) => tag.codec_f32(),
+        None => Some(default),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;

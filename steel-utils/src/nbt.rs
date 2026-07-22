@@ -7,7 +7,7 @@ mod snbt;
 use rustc_hash::FxHashSet;
 use simdnbt::owned::{NbtCompound, NbtList, NbtTag};
 
-pub use codec::NbtNumeric;
+pub use codec::{NbtNumeric, optional_bool, optional_f32, optional_i32};
 pub use path::{
     NbtPath, NbtPathError, NbtPathErrorKind, NbtPathMutationError, parse_nbt_path,
     parse_nbt_path_argument,

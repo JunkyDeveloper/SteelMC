@@ -152,28 +152,6 @@ impl ShapedRecipe {
         }
         true
     }
-
-    /// Assembles the result item stack.
-    #[must_use]
-    pub fn assemble(&self) -> ItemStack {
-        self.result.to_item_stack()
-    }
-
-    /// Gets the remaining items after crafting (e.g., empty buckets).
-    #[must_use]
-    pub fn get_remaining_items(&self, input: &CraftingInput) -> Vec<ItemStack> {
-        input
-            .items
-            .iter()
-            .map(|stack| {
-                if stack.is_empty() {
-                    ItemStack::empty()
-                } else {
-                    stack.item.get_crafting_remainder()
-                }
-            })
-            .collect()
-    }
 }
 
 /// A shapeless crafting recipe where ingredient order doesn't matter.
@@ -224,28 +202,6 @@ impl ShapelessRecipe {
         }
 
         true
-    }
-
-    /// Assembles the result item stack.
-    #[must_use]
-    pub fn assemble(&self) -> ItemStack {
-        self.result.to_item_stack()
-    }
-
-    /// Gets the remaining items after crafting (e.g., empty buckets).
-    #[must_use]
-    pub fn get_remaining_items(&self, input: &CraftingInput) -> Vec<ItemStack> {
-        input
-            .items
-            .iter()
-            .map(|stack| {
-                if stack.is_empty() {
-                    ItemStack::empty()
-                } else {
-                    stack.item.get_crafting_remainder()
-                }
-            })
-            .collect()
     }
 }
 
@@ -306,18 +262,16 @@ impl CraftingRecipe {
     #[must_use]
     pub fn assemble(&self) -> ItemStack {
         match self {
-            Self::Shaped(r) => r.assemble(),
-            Self::Shapeless(r) => r.assemble(),
+            Self::Shaped(r) => &r.result,
+            Self::Shapeless(r) => &r.result,
         }
+        .to_item_stack()
     }
 
     /// Gets the remaining items after crafting (e.g., empty buckets).
     #[must_use]
     pub fn get_remaining_items(&self, input: &CraftingInput) -> Vec<ItemStack> {
-        match self {
-            Self::Shaped(r) => r.get_remaining_items(input),
-            Self::Shapeless(r) => r.get_remaining_items(input),
-        }
+        input.get_remaining_items()
     }
 
     /// Returns true if this recipe fits in a 2x2 grid.
@@ -353,6 +307,22 @@ impl CraftingInput {
         items: Vec::new(),
         ingredient_count: 0,
     };
+
+    /// Gets the remaining items left in the grid after crafting (e.g. empty
+    /// buckets). Each non-empty stack is mapped to its crafting remainder.
+    #[must_use]
+    pub fn get_remaining_items(&self) -> Vec<ItemStack> {
+        self.items
+            .iter()
+            .map(|stack| {
+                if stack.is_empty() {
+                    ItemStack::empty()
+                } else {
+                    stack.item.get_crafting_remainder()
+                }
+            })
+            .collect()
+    }
 
     /// Creates a new crafting input, pre-computing ingredient count.
     #[must_use]

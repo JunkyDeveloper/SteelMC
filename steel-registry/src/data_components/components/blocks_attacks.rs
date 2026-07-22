@@ -594,12 +594,7 @@ const fn is_positive_float(value: f32) -> bool {
     value > 0.0 && value <= f32::MAX
 }
 
-fn optional_f32(tag: Option<&NbtTag>, default: f32) -> Option<f32> {
-    match tag {
-        Some(tag) => tag.codec_f32(),
-        None => Some(default),
-    }
-}
+use steel_utils::nbt::optional_f32;
 
 fn write_count(count: usize, writer: &mut impl Write) -> Result<()> {
     let count =

@@ -462,12 +462,7 @@ const fn is_non_negative_float(value: f32) -> bool {
     value.is_finite() && !value.is_sign_negative()
 }
 
-fn optional_f32(tag: Option<&NbtTag>, default: f32) -> Option<f32> {
-    match tag {
-        Some(tag) => tag.codec_f32(),
-        None => Some(default),
-    }
-}
+use steel_utils::nbt::optional_f32;
 
 #[cfg(test)]
 mod tests {
