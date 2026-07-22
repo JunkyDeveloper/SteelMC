@@ -1,6 +1,6 @@
 //! Beehive block entity implementation.
 
-use std::sync::{Arc, Weak};
+use std::sync::Weak;
 
 use simdnbt::borrow::{BaseNbtCompound as BorrowedNbtCompound, NbtCompound as NbtCompoundView};
 use simdnbt::owned::{NbtCompound, NbtList};
@@ -8,7 +8,7 @@ use steel_registry::block_entity_type::BlockEntityTypeRef;
 use steel_registry::{vanilla_block_entity_types, vanilla_entities};
 use steel_utils::{BlockPos, BlockStateId, DowncastType, DowncastTypeKey};
 
-use crate::block_entity::BlockEntity;
+use crate::block_entity::{BlockEntity, impl_block_entity_accessors};
 use crate::world::World;
 
 /// Maximum number of occupants in a vanilla beehive.
@@ -130,33 +130,7 @@ impl BlockEntity for BeehiveBlockEntity {
         &vanilla_block_entity_types::BEEHIVE
     }
 
-    fn get_block_pos(&self) -> BlockPos {
-        self.pos
-    }
-
-    fn get_block_state(&self) -> BlockStateId {
-        self.state
-    }
-
-    fn set_block_state(&mut self, state: BlockStateId) {
-        self.state = state;
-    }
-
-    fn is_removed(&self) -> bool {
-        self.removed
-    }
-
-    fn set_removed(&mut self) {
-        self.removed = true;
-    }
-
-    fn clear_removed(&mut self) {
-        self.removed = false;
-    }
-
-    fn get_level(&self) -> Option<Arc<World>> {
-        self.level.upgrade()
-    }
+    impl_block_entity_accessors!(level);
 
     fn load_additional(&mut self, nbt: &BorrowedNbtCompound<'_>) {
         let nbt: NbtCompoundView<'_, '_> = nbt.into();

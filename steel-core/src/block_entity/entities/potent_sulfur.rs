@@ -18,7 +18,7 @@ use steel_utils::types::UpdateFlags;
 use steel_utils::{BlockPos, BlockStateId, DowncastType, DowncastTypeKey, WorldAabb};
 
 use crate::behavior::{BLOCK_BEHAVIORS, BlockCollisionContext, BlockStateBehaviorExt as _};
-use crate::block_entity::{BlockEntity, BlockEntityTickAction};
+use crate::block_entity::{BlockEntity, BlockEntityTickAction, impl_block_entity_accessors};
 use crate::fluid::FluidStateExt as _;
 use crate::world::World;
 
@@ -241,33 +241,7 @@ impl BlockEntity for PotentSulfurBlockEntity {
         &vanilla_block_entity_types::POTENT_SULFUR
     }
 
-    fn get_block_pos(&self) -> BlockPos {
-        self.pos
-    }
-
-    fn get_block_state(&self) -> BlockStateId {
-        self.state
-    }
-
-    fn set_block_state(&mut self, state: BlockStateId) {
-        self.state = state;
-    }
-
-    fn is_removed(&self) -> bool {
-        self.removed
-    }
-
-    fn set_removed(&mut self) {
-        self.removed = true;
-    }
-
-    fn clear_removed(&mut self) {
-        self.removed = false;
-    }
-
-    fn get_level(&self) -> Option<Arc<World>> {
-        self.world.upgrade()
-    }
+    impl_block_entity_accessors!(world);
 
     fn load_additional(&mut self, nbt: &BorrowedNbtCompound<'_>) {
         let nbt: NbtCompoundView<'_, '_> = nbt.into();

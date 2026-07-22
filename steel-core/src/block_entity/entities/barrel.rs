@@ -3,7 +3,7 @@
 //! Barrels are container block entities with 27 slots (3x9 grid),
 //! functioning similarly to chests but without double-chest behavior.
 
-use std::sync::{Arc, Weak};
+use std::sync::Weak;
 
 use simdnbt::ToNbtTag;
 use simdnbt::borrow::{BaseNbtCompound as BorrowedNbtCompound, NbtCompound as NbtCompoundView};
@@ -15,7 +15,7 @@ use steel_registry::vanilla_block_entity_types;
 use steel_registry::vanilla_blocks;
 use steel_utils::{BlockPos, BlockStateId, DowncastType, DowncastTypeKey};
 
-use crate::block_entity::BlockEntity;
+use crate::block_entity::{BlockEntity, impl_block_entity_accessors};
 use crate::inventory::container::Container;
 use crate::player::Player;
 use crate::world::World;
@@ -63,33 +63,7 @@ impl BlockEntity for BarrelBlockEntity {
         &vanilla_block_entity_types::BARREL
     }
 
-    fn get_block_pos(&self) -> BlockPos {
-        self.pos
-    }
-
-    fn get_block_state(&self) -> BlockStateId {
-        self.state
-    }
-
-    fn set_block_state(&mut self, state: BlockStateId) {
-        self.state = state;
-    }
-
-    fn is_removed(&self) -> bool {
-        self.removed
-    }
-
-    fn set_removed(&mut self) {
-        self.removed = true;
-    }
-
-    fn clear_removed(&mut self) {
-        self.removed = false;
-    }
-
-    fn get_level(&self) -> Option<Arc<World>> {
-        self.level.upgrade()
-    }
+    impl_block_entity_accessors!(level);
 
     fn pre_remove_side_effects(&mut self, pos: BlockPos, _state: BlockStateId) {
         // Drop all items when the barrel is broken

@@ -9,7 +9,7 @@ use steel_registry::blocks::block_state_ext::BlockStateExt as _;
 use steel_registry::{vanilla_block_entity_types, vanilla_blocks};
 use steel_utils::{BlockPos, BlockStateId, DowncastType, DowncastTypeKey};
 
-use crate::block_entity::{BlockEntity, BlockEntityTickAction};
+use crate::block_entity::{BlockEntity, BlockEntityTickAction, impl_block_entity_accessors};
 use crate::world::World;
 
 const SPAWN_TIME: i64 = 200;
@@ -107,33 +107,7 @@ impl BlockEntity for EndGatewayBlockEntity {
         &vanilla_block_entity_types::END_GATEWAY
     }
 
-    fn get_block_pos(&self) -> BlockPos {
-        self.pos
-    }
-
-    fn get_block_state(&self) -> BlockStateId {
-        self.state
-    }
-
-    fn set_block_state(&mut self, state: BlockStateId) {
-        self.state = state;
-    }
-
-    fn is_removed(&self) -> bool {
-        self.removed
-    }
-
-    fn set_removed(&mut self) {
-        self.removed = true;
-    }
-
-    fn clear_removed(&mut self) {
-        self.removed = false;
-    }
-
-    fn get_level(&self) -> Option<Arc<World>> {
-        self.world.upgrade()
-    }
+    impl_block_entity_accessors!(world);
 
     fn load_additional(&mut self, nbt: &BorrowedNbtCompound<'_>) {
         let nbt: NbtCompoundView<'_, '_> = nbt.into();

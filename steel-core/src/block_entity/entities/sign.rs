@@ -16,7 +16,7 @@ use steel_utils::{BlockPos, BlockStateId, DowncastType, DowncastTypeKey};
 use text_components::{TextComponent, content::Content};
 use uuid::Uuid;
 
-use crate::block_entity::{BlockEntity, BlockEntityTickAction};
+use crate::block_entity::{BlockEntity, BlockEntityTickAction, impl_block_entity_accessors};
 use crate::entity::Entity;
 use crate::world::World;
 
@@ -244,33 +244,7 @@ impl BlockEntity for SignBlockEntity {
         self.block_entity_type
     }
 
-    fn get_block_pos(&self) -> BlockPos {
-        self.pos
-    }
-
-    fn get_block_state(&self) -> BlockStateId {
-        self.state
-    }
-
-    fn set_block_state(&mut self, state: BlockStateId) {
-        self.state = state;
-    }
-
-    fn is_removed(&self) -> bool {
-        self.removed
-    }
-
-    fn set_removed(&mut self) {
-        self.removed = true;
-    }
-
-    fn clear_removed(&mut self) {
-        self.removed = false;
-    }
-
-    fn get_level(&self) -> Option<Arc<World>> {
-        self.level.upgrade()
-    }
+    impl_block_entity_accessors!(level);
 
     fn load_additional(&mut self, nbt: &BorrowedNbtCompound<'_>) {
         // Convert to NbtCompound view for accessing methods

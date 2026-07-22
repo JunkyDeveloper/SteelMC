@@ -202,3 +202,45 @@ pub trait BlockEntity: ErasedType + Send + Sync {
 
 /// Type alias for a shared, thread-safe block entity.
 pub type SharedBlockEntity = Arc<SyncMutex<dyn BlockEntity>>;
+
+/// Generates the boilerplate [`BlockEntity`] accessor methods shared verbatim by
+/// every concrete block entity: position, cached block state, the removed flag,
+/// and the world handle.
+///
+/// Each implementor stores the position in `pos`, the block state in `state`,
+/// the removed flag in `removed`, and a `Weak<World>` handle in the field named
+/// by the macro argument (usually `level`, occasionally `world`). Only
+/// `get_type` varies per block entity, so it stays hand-written.
+macro_rules! impl_block_entity_accessors {
+    ($level:ident) => {
+        fn get_block_pos(&self) -> ::steel_utils::BlockPos {
+            self.pos
+        }
+
+        fn get_block_state(&self) -> ::steel_utils::BlockStateId {
+            self.state
+        }
+
+        fn set_block_state(&mut self, state: ::steel_utils::BlockStateId) {
+            self.state = state;
+        }
+
+        fn is_removed(&self) -> bool {
+            self.removed
+        }
+
+        fn set_removed(&mut self) {
+            self.removed = true;
+        }
+
+        fn clear_removed(&mut self) {
+            self.removed = false;
+        }
+
+        fn get_level(&self) -> ::core::option::Option<::std::sync::Arc<$crate::world::World>> {
+            self.$level.upgrade()
+        }
+    };
+}
+
+pub(crate) use impl_block_entity_accessors;
