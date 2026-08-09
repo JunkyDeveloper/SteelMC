@@ -74,7 +74,7 @@ impl BlockBehavior for TallSeagrassBlock {
         } else {
             get_fluid_state_from_block(current)
         };
-        below.is_face_sturdy_at(below_pos, Direction::Up)
+        world.is_face_sturdy(below, below_pos, Direction::Up)
             && !below
                 .get_block()
                 .has_tag(&BlockTag::CANNOT_SUPPORT_SEAGRASS)
@@ -113,10 +113,6 @@ impl BlockBehavior for TallSeagrassBlock {
         Some(ItemStack::new(&vanilla_items::SEAGRASS))
     }
 
-    fn get_fluid_state(&self, _state: BlockStateId) -> FluidState {
-        water_source_fluid_state()
-    }
-
     fn is_liquid_container(&self, _state: BlockStateId) -> bool {
         true
     }
@@ -139,7 +135,7 @@ impl BlockBehavior for TallSeagrassBlock {
 #[cfg(test)]
 mod tests {
     use crate::behavior::init_behaviors;
-    use steel_registry::{test_support::init_test_registry, vanilla_blocks};
+    use steel_registry::{init_vanilla_registry, vanilla_blocks};
 
     use crate::test_support::TestLevel;
 
@@ -153,7 +149,7 @@ mod tests {
 
     #[test]
     fn tall_seagrass_lower_breaks_when_upper_half_is_missing() {
-        init_test_registry();
+        init_vanilla_registry();
         let behavior = TallSeagrassBlock::new(&vanilla_blocks::TALL_SEAGRASS);
         let lower = vanilla_blocks::TALL_SEAGRASS.default_state().set_value(
             &BlockStateProperties::DOUBLE_BLOCK_HALF,
@@ -175,7 +171,7 @@ mod tests {
 
     #[test]
     fn tall_seagrass_upper_breaks_when_lower_half_is_missing() {
-        init_test_registry();
+        init_vanilla_registry();
         let behavior = TallSeagrassBlock::new(&vanilla_blocks::TALL_SEAGRASS);
         let upper = vanilla_blocks::TALL_SEAGRASS.default_state().set_value(
             &BlockStateProperties::DOUBLE_BLOCK_HALF,
@@ -197,7 +193,7 @@ mod tests {
 
     #[test]
     fn tall_seagrass_lower_survives_in_falling_full_water() {
-        init_test_registry();
+        init_vanilla_registry();
         init_behaviors();
         let behavior = TallSeagrassBlock::new(&vanilla_blocks::TALL_SEAGRASS);
         let lower = vanilla_blocks::TALL_SEAGRASS.default_state().set_value(

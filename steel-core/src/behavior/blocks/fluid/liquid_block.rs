@@ -1,8 +1,6 @@
 //! Liquid block behavior (water, lava).
 //!
 //! Based on vanilla's LiquidBlock.java.
-//!
-// TODO: Add support for cached fluid states when FluidState caching is implemented
 use std::sync::Arc;
 
 use steel_macros::block_behavior;
@@ -10,7 +8,7 @@ use steel_registry::REGISTRY;
 use steel_registry::blocks::BlockRef;
 use steel_registry::blocks::block_state_ext::BlockStateExt;
 use steel_registry::blocks::properties::{BlockStateProperties, Direction};
-use steel_registry::fluid::{FluidRef, FluidState};
+use steel_registry::fluid::FluidRef;
 use steel_registry::item_stack::ItemStack;
 use steel_registry::vanilla_block_tags::BlockTag;
 use steel_registry::vanilla_blocks;
@@ -23,7 +21,6 @@ use steel_registry::level_events;
 use steel_registry::sound_events;
 use steel_registry::vanilla_items;
 
-use crate::behavior::BlockStateBehaviorExt;
 use crate::behavior::FLUID_BEHAVIORS;
 use crate::behavior::block::{BlockBehavior, PickupResult};
 use crate::behavior::context::BlockPlaceContext;
@@ -138,11 +135,6 @@ impl BlockBehavior for LiquidBlock {
         Some(self.block.default_state())
     }
 
-    fn get_fluid_state(&self, state: BlockStateId) -> FluidState {
-        let level = state.get_value(&BlockStateProperties::LEVEL);
-        FluidState::from_block_level(self.fluid, level)
-    }
-
     fn is_pathfindable(
         &self,
         _state: BlockStateId,
@@ -215,8 +207,7 @@ impl BlockBehavior for LiquidBlock {
         _neighbor_pos: BlockPos,
         neighbor_state: BlockStateId,
     ) -> BlockStateId {
-        let fluid_state =
-            FluidState::from_block_level(self.fluid, state.get_value(&BlockStateProperties::LEVEL));
+        let fluid_state = state.get_fluid_state();
         let neighbor_fluid = neighbor_state.get_fluid_state();
 
         if fluid_state.is_source() || neighbor_fluid.is_source() {
@@ -231,17 +222,10 @@ impl BlockBehavior for LiquidBlock {
         state
     }
 
-    /// Vanilla parity: `LiquidBlock.isRandomlyTicking` delegates to the fluid.
-    fn is_randomly_ticking(&self, _state: BlockStateId) -> bool {
-        FLUID_BEHAVIORS
-            .get_behavior(self.fluid)
-            .is_randomly_ticking()
-    }
-
     /// Vanilla parity: `LiquidBlock.randomTick` delegates to the fluid.
-    fn random_tick(&self, _state: BlockStateId, world: &Arc<World>, pos: BlockPos) {
+    fn random_tick(&self, state: BlockStateId, world: &Arc<World>, pos: BlockPos) {
         FLUID_BEHAVIORS
-            .get_behavior(self.fluid)
+            .get_behavior(state.get_fluid_state().fluid_id)
             .random_tick(world, pos);
     }
 
@@ -285,7 +269,7 @@ impl BlockBehavior for LiquidBlock {
 #[cfg(test)]
 mod tests {
     use crate::behavior::init_behaviors;
-    use steel_registry::{test_support::init_test_registry, vanilla_fluids};
+    use steel_registry::{init_vanilla_registry, vanilla_fluids};
 
     use crate::test_support::TestLevel;
 
@@ -293,7 +277,7 @@ mod tests {
 
     #[test]
     fn update_shape_schedules_actual_flowing_fluid_variant() {
-        init_test_registry();
+        init_vanilla_registry();
         init_behaviors();
 
         let block = LiquidBlock::new(&vanilla_blocks::WATER, &vanilla_fluids::WATER);
@@ -326,7 +310,7 @@ mod tests {
 
     #[test]
     fn source_water_above_soul_sand_schedules_bubble_column_tick() {
-        init_test_registry();
+        init_vanilla_registry();
         init_behaviors();
 
         let block = LiquidBlock::new(&vanilla_blocks::WATER, &vanilla_fluids::WATER);
@@ -354,7 +338,7 @@ mod tests {
 
     #[test]
     fn flowing_water_does_not_schedule_bubble_column_tick() {
-        init_test_registry();
+        init_vanilla_registry();
         init_behaviors();
 
         let block = LiquidBlock::new(&vanilla_blocks::WATER, &vanilla_fluids::WATER);

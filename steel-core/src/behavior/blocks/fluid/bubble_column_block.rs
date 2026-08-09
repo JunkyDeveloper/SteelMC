@@ -4,7 +4,6 @@ use steel_macros::block_behavior;
 use steel_registry::blocks::BlockRef;
 use steel_registry::blocks::block_state_ext::BlockStateExt as _;
 use steel_registry::blocks::properties::{BlockStateProperties, Direction};
-use steel_registry::fluid::FluidState;
 use steel_registry::item_stack::ItemStack;
 use steel_registry::sound_events;
 use steel_registry::vanilla_block_tags::BlockTag;
@@ -17,8 +16,7 @@ use steel_utils::{BlockPos, BlockStateId};
 
 use crate::behavior::context::BlockPlaceContext;
 use crate::behavior::{
-    BLOCK_BEHAVIORS, BlockCollisionContext, BlockStateBehaviorExt, block::BlockBehavior,
-    block::PickupResult,
+    BLOCK_BEHAVIORS, BlockCollisionContext, block::BlockBehavior, block::PickupResult,
 };
 use crate::entity::{Entity, InsideBlockEffectCollector};
 use crate::player::Player;
@@ -45,7 +43,22 @@ impl BubbleColumnBlock {
         occupy_at: BlockPos,
         below_state: BlockStateId,
     ) {
-        let occupy_state = level.get_block_state(occupy_at);
+        Self::update_column_with_state(
+            bubble_column,
+            level,
+            occupy_at,
+            level.get_block_state(occupy_at),
+            below_state,
+        );
+    }
+
+    fn update_column_with_state(
+        bubble_column: BlockRef,
+        level: &dyn LevelAccessor,
+        occupy_at: BlockPos,
+        occupy_state: BlockStateId,
+        below_state: BlockStateId,
+    ) {
         if !Self::can_occupy(bubble_column, occupy_state) {
             return;
         }
@@ -178,12 +191,14 @@ impl BlockBehavior for BubbleColumnBlock {
         state
     }
 
-    fn tick(&self, _state: BlockStateId, world: &Arc<World>, pos: BlockPos) {
-        Self::update_column(self.block, world, pos, world.get_block_state(pos.below()));
-    }
-
-    fn get_fluid_state(&self, _state: BlockStateId) -> FluidState {
-        FluidState::source(&vanilla_fluids::WATER)
+    fn tick(&self, state: BlockStateId, world: &Arc<World>, pos: BlockPos) {
+        Self::update_column_with_state(
+            self.block,
+            world,
+            pos,
+            state,
+            world.get_block_state(pos.below()),
+        );
     }
 
     fn entity_inside(
@@ -227,7 +242,7 @@ mod tests {
 
     use glam::DVec3;
     use steel_registry::entity_type::EntityTypeRef;
-    use steel_registry::test_support::init_test_registry;
+    use steel_registry::init_vanilla_registry;
     use steel_registry::vanilla_entities;
     use steel_utils::locks::SyncMutex;
 
@@ -297,7 +312,7 @@ mod tests {
 
     #[test]
     fn bubble_column_update_shape_schedules_water_and_column_tick() {
-        init_test_registry();
+        init_vanilla_registry();
         let behavior = BubbleColumnBlock::new(&vanilla_blocks::BUBBLE_COLUMN);
         let level = TestLevel::default();
         let state = vanilla_blocks::BUBBLE_COLUMN.default_state();
@@ -324,7 +339,7 @@ mod tests {
 
     #[test]
     fn bubble_column_update_column_uses_push_up_and_drag_down_blocks() {
-        init_test_registry();
+        init_vanilla_registry();
         init_behaviors();
         let level = TestLevel::default()
             .with_block(BlockPos::ZERO, vanilla_blocks::WATER.default_state())
@@ -350,7 +365,7 @@ mod tests {
 
     #[test]
     fn precise_entity_with_open_block_above_uses_above_bubble_column_hook() {
-        init_test_registry();
+        init_vanilla_registry();
         init_behaviors();
         let level = TestLevel::default();
         let entity = RecordingEntity::new();
@@ -375,7 +390,7 @@ mod tests {
 
     #[test]
     fn precise_entity_with_fluid_above_stays_inside_bubble_column() {
-        init_test_registry();
+        init_vanilla_registry();
         init_behaviors();
         let level = TestLevel::default().with_block(
             BlockPos::ZERO.above(),
@@ -399,7 +414,7 @@ mod tests {
 
     #[test]
     fn imprecise_entity_does_not_apply_bubble_column_effect() {
-        init_test_registry();
+        init_vanilla_registry();
         init_behaviors();
         let level = TestLevel::default();
         let entity = RecordingEntity::new();

@@ -16,7 +16,7 @@ use steel_protocol::packets::game::{
     CTeleportEntity, EquipmentSlotItem, RelativeMovement, SoundSource,
 };
 use steel_registry::blocks::{
-    block_state_ext::BlockStateExt as _, properties::BlockStateProperties,
+    behavior::PushReaction, block_state_ext::BlockStateExt as _, properties::BlockStateProperties,
     shapes::is_shape_full_block,
 };
 use steel_registry::data_components::vanilla_components::{
@@ -48,10 +48,11 @@ use steel_registry::{RegistryEntry, RegistryExt};
 use steel_registry::{vanilla_attributes, vanilla_fluid_tags, vanilla_items, vanilla_mob_effects};
 use steel_utils::entity_events::EntityStatus;
 use steel_utils::locks::SyncMutex;
-use steel_utils::types::{Difficulty, InteractionHand};
+use steel_utils::types::{Difficulty, InteractionHand, UpdateFlags};
 use steel_utils::{
     BlockPos, BlockStateId, ChunkPos, Direction, Downcast as _, ErasedType, Identifier,
     UuidExt as _, WorldAabb, axis::Axis, block_util::FoundRectangle, text::DisplayResolutor,
+    wrap_degrees,
 };
 use text_components::{
     Modifier as _, TextComponent, interactivity::HoverEvent, translation::TranslatedMessage,
@@ -61,6 +62,7 @@ use uuid::Uuid;
 use crate::behavior::{
     BLOCK_BEHAVIORS, BlockCollisionContext, BlockStateBehaviorExt as _, EntityFallOnContext,
     EntityLandingContext, FLUID_BEHAVIORS, InteractionResult,
+    blocks::{BedBlock, PowderSnowBlock},
 };
 use crate::chunk_saver::ChunkStorage;
 use crate::entity::attribute::{AttributeMap, AttributeModifier, AttributeModifierOperation};
@@ -70,7 +72,7 @@ use crate::physics::{
     COLLISION_EPSILON, CollisionWorld, EntityPhysicsState, MoveResult, MoverType,
     WorldCollisionProvider, move_entity as resolve_entity_movement,
 };
-use crate::world::game_event_context::GameEventContext;
+use crate::world::game_event::GameEventContext;
 use crate::world::{ClipBlockShape, ClipFluid, LevelReader, World};
 use crate::{enchantment_helper, entity::damage::DamageSource, player::Player};
 
@@ -462,7 +464,7 @@ fn physics_state_for_move(entity: &dyn Entity) -> EntityPhysicsState {
         max_up_step: entity.max_up_step(),
         backs_off_from_edge: entity.backs_off_from_edge(),
         descending: entity.is_descending(),
-        can_walk_on_powder_snow: entity.can_walk_on_powder_snow(),
+        can_walk_on_powder_snow: PowderSnowBlock::can_entity_walk_on_powder_snow(entity),
         is_falling_block: entity.entity_type() == &vanilla_entities::FALLING_BLOCK,
     })
 }
@@ -733,6 +735,7 @@ mod block_effects;
 mod callback;
 mod combat_rules;
 pub mod damage;
+pub(crate) mod dismount_helper;
 pub mod entities;
 #[expect(
     clippy::module_inception,
@@ -746,6 +749,7 @@ mod fluid_contact;
 mod generated_entities;
 mod inside_block_effects;
 mod item_based_steering;
+mod item_frame;
 mod living_base;
 mod living_entity;
 mod manager;
@@ -753,7 +757,6 @@ mod mob;
 mod movement_sync;
 pub mod projectile;
 mod registry;
-mod shared_flags;
 mod spawn;
 mod storage;
 mod synced_data;
@@ -786,6 +789,7 @@ pub use inside_block_effects::{
     InsideBlockEffectCallback, InsideBlockEffectCollector, InsideBlockEffectType,
 };
 pub(crate) use item_based_steering::{ItemBasedSteering, ItemSteerable};
+pub use item_frame::ItemFrame;
 pub use living_base::{
     ActiveMobEffect, DEATH_DURATION, DEFAULT_SWING_DURATION, LivingEntityBase, LivingRotationState,
     LivingSwingState, LivingTravelInput, MobEffectInstance, MobEffectSyncChange,
@@ -808,13 +812,10 @@ pub use projectile::{
     EntityHitResult, Projectile, ProjectileBase, ProjectileDeflection, ProjectileEventSource,
     ProjectileHit, ThrowableItemProjectile, ThrowableProjectile, compute_margin,
 };
-#[cfg(test)]
-pub(crate) use registry::init_test_entities;
 pub use registry::{ENTITIES, EntityLoadRequest, EntityRegistry, init_entities};
-pub(crate) use shared_flags::EntitySharedFlags;
 pub(crate) use spawn::{AgeableMobGroupData, EntitySpawnReason, SpawnGroupData};
-pub(crate) use storage::EntityStorage;
-pub use synced_data::EntitySyncedData;
+pub(crate) use storage::{EntityStorage, EntityStorageAddResult};
+pub use synced_data::{EntitySyncedData, LivingEntitySyncedData};
 pub(crate) use ticking::{
     snapshot_old_pos_and_rot_for_tick, tick_vehicle_passengers_with_ticked_if,
 };

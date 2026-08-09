@@ -7,7 +7,6 @@ use steel_registry::{
     blocks::{BlockRef, block_state_ext::BlockStateExt, properties::BlockStateProperties},
     item_stack::ItemStack,
     items::item::BlockHitResult,
-    loot_table::LootContext,
     sound_events, vanilla_damage_types, vanilla_entities, vanilla_items,
     vanilla_loot_tables::{self},
 };
@@ -16,6 +15,7 @@ use steel_utils::{
     types::{InteractionHand, UpdateFlags},
 };
 
+use crate::behavior::block::drop_from_block_interact_loot_table;
 use crate::{
     behavior::{
         BlockBehavior, BlockPlaceContext, InteractionResult, InventoryAccess,
@@ -79,10 +79,6 @@ impl BlockBehavior for SweetBerryBushBlock {
         vegetation_can_survive(self, state, world, pos)
     }
 
-    fn is_randomly_ticking(&self, state: BlockStateId) -> bool {
-        state.get_value(&BlockStateProperties::AGE_3) < 3
-    }
-
     fn random_tick(&self, state: BlockStateId, world: &Arc<World>, pos: BlockPos) {
         let age = state.get_value(&BlockStateProperties::AGE_3);
         if age >= 3 || rand::random_range(0..5) != 0 || world.raw_brightness(pos.above(), 0) < 9 {
@@ -144,12 +140,20 @@ impl BlockBehavior for SweetBerryBushBlock {
         if age <= 1 {
             return InteractionResult::Pass;
         }
-        let mut rng = rand::rng();
-        let mut ctx = LootContext::new(&mut rng).with_block_state(state);
 
-        let items = vanilla_loot_tables::HARVEST_SWEET_BERRY_BUSH.get_random_items(&mut ctx);
+        let mut rng = rand::rng();
+
+        let items = drop_from_block_interact_loot_table(
+            &vanilla_loot_tables::HARVEST_SWEET_BERRY_BUSH,
+            state,
+            world.get_block_entity(pos),
+            None,
+            Some(player),
+            &mut rng,
+        );
+
         for item in items {
-            world.drop_item_stack(pos, item);
+            world.pop_resource(pos, item);
         }
 
         world.play_block_sound(
@@ -247,8 +251,7 @@ mod tests {
 
     use steel_registry::{
         entity_type::{EntityDimensions, EntityTypeRef},
-        test_support::init_test_registry,
-        vanilla_blocks,
+        init_vanilla_registry, vanilla_blocks,
     };
     use steel_utils::locks::SyncMutex;
 
@@ -340,7 +343,7 @@ mod tests {
     }
 
     fn state_with_age(age: u8) -> BlockStateId {
-        init_test_registry();
+        init_vanilla_registry();
         vanilla_blocks::SWEET_BERRY_BUSH
             .default_state()
             .set_value(&BlockStateProperties::AGE_3, age)

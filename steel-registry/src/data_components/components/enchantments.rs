@@ -65,6 +65,16 @@ impl ItemEnchantments {
     }
 }
 
+impl IntoIterator for ItemEnchantments {
+    type Item = (Identifier, u32);
+
+    type IntoIter = <FxHashMap<Identifier, u32> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.levels.into_iter()
+    }
+}
+
 impl Default for ItemEnchantments {
     fn default() -> Self {
         Self::empty()
@@ -190,7 +200,7 @@ mod tests {
     use simdnbt::owned::{NbtCompound, NbtTag};
 
     use super::ItemEnchantments;
-    use crate::test_support::init_test_registry;
+    use crate::init_vanilla_registry;
 
     fn with_borrowed_tag<R>(tag: NbtTag, visitor: impl FnOnce(BorrowedNbtTag<'_, '_>) -> R) -> R {
         let mut bytes = Vec::new();
@@ -206,7 +216,7 @@ mod tests {
 
     #[test]
     fn enchantment_nbt_requires_known_keys_and_vanilla_levels() {
-        init_test_registry();
+        init_vanilla_registry();
         let mut valid = NbtCompound::new();
         valid.insert("minecraft:efficiency", 5_i8);
         assert!(parse_enchantments(valid).is_some());

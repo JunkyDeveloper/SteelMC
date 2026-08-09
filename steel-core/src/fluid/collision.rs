@@ -23,26 +23,19 @@ use steel_utils::{BlockPos, BlockStateId};
 pub fn can_pass_through_wall(
     world: &Arc<World>,
     from: BlockPos,
+    from_state: BlockStateId,
     to: BlockPos,
+    to_state: BlockStateId,
     direction: Direction,
 ) -> bool {
     if !world.is_in_valid_bounds(to) {
         return false;
     }
 
-    let from_shape = world.get_block_state(from).get_collision_shape_at(from);
-    let to_shape = world.get_block_state(to).get_collision_shape_at(to);
+    let from_shape = from_state.get_collision_shape_at(from);
+    let to_shape = to_state.get_collision_shape_at(to);
 
     !merged_offset_face_occludes(from_shape, to_shape, direction)
-}
-
-/// Checks if a block at the given world position can hold any fluid.
-///
-/// Vanilla equivalent: `FlowingFluid.canHoldAnyFluid(BlockState)`.
-#[must_use]
-pub fn can_hold_any_fluid(world: &Arc<World>, pos: BlockPos) -> bool {
-    let state = world.get_block_state(pos);
-    can_hold_any_fluid_state(state)
 }
 
 /// Checks if a block state can hold any fluid, without world access.
@@ -103,26 +96,9 @@ pub fn can_hold_fluid(state: BlockStateId, fluid: FluidRef) -> bool {
     can_hold_any_fluid_state(state) && can_hold_specific_fluid(state, fluid)
 }
 
-/// Checks if fluid can pass through to a position horizontally.
-///
-/// This is the world-querying entry point. It reads the block state at `pos`
-/// and delegates entirely to [`can_pass_horizontally_internal`]
-#[must_use]
-pub fn can_pass_horizontally(world: &Arc<World>, pos: BlockPos, target_fluid_id: FluidRef) -> bool {
-    if !world.is_in_valid_bounds(pos) {
-        return false;
-    }
-    let state = world.get_block_state(pos);
-    can_pass_horizontally_internal(state, target_fluid_id)
-}
-
 /// Core passability logic for horizontal fluid spread.
 ///
 /// Vanilla equivalent: `!isSourceBlockOfThisType(testFluidState) && canHoldAnyFluid(testState)`.
-///
-/// Single source of truth used by both the world-querying
-/// [`can_pass_horizontally`] and [`SpreadContext`] (which supplies a
-/// cached `BlockStateId` to avoid redundant world lookups).
 #[must_use]
 pub fn can_pass_horizontally_internal(state: BlockStateId, target_fluid_id: FluidRef) -> bool {
     // Vanilla: !isSourceBlockOfThisType — reject same-type source blocks
@@ -143,13 +119,13 @@ pub fn can_pass_horizontally_internal(state: BlockStateId, target_fluid_id: Flui
 mod tests {
     use crate::behavior::init_behaviors;
     use steel_registry::blocks::properties::{BlockStateProperties, SlabType};
-    use steel_registry::{test_support::init_test_registry, vanilla_blocks, vanilla_fluids};
+    use steel_registry::{init_vanilla_registry, vanilla_blocks, vanilla_fluids};
 
     use super::*;
 
     #[test]
     fn waterlogged_source_blocks_block_same_fluid_flowing_variant_spread() {
-        init_test_registry();
+        init_vanilla_registry();
         init_behaviors();
 
         let waterlogged = vanilla_blocks::OAK_LEAVES
@@ -168,7 +144,7 @@ mod tests {
 
     #[test]
     fn dry_waterloggable_blocks_reject_flowing_water() {
-        init_test_registry();
+        init_vanilla_registry();
         init_behaviors();
 
         let dry = vanilla_blocks::OAK_SLAB
@@ -185,7 +161,7 @@ mod tests {
 
     #[test]
     fn kelp_is_liquid_container_without_waterlogged_property() {
-        init_test_registry();
+        init_vanilla_registry();
         init_behaviors();
 
         let kelp = vanilla_blocks::KELP.default_state();

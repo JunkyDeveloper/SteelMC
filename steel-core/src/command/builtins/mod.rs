@@ -1,6 +1,7 @@
 //! Steel-owned built-in command declarations.
 
 mod clear;
+mod damage;
 mod difficulty;
 mod domain;
 mod enchant;
@@ -10,6 +11,7 @@ mod fly;
 pub(crate) mod gamemode;
 mod gamerule;
 mod give;
+mod invsee;
 mod kill;
 mod list;
 mod locate;
@@ -17,6 +19,7 @@ mod operator;
 mod perms;
 mod return_command;
 mod seed;
+mod setblock;
 mod setworldspawn;
 mod stop;
 mod summon;
@@ -57,6 +60,7 @@ pub(crate) fn create_registered_dispatcher(
     builder.declare_permission(perms::METADATA_PERMISSION)?;
     builder.register(clear::registration())?;
     builder.register(operator::deop_registration())?;
+    builder.register(damage::registration())?;
     builder.register(difficulty::registration())?;
     builder.register(domain::registration())?;
     builder.register(enchant::registration())?;
@@ -73,6 +77,7 @@ pub(crate) fn create_registered_dispatcher(
     builder.register(perms::registration())?;
     builder.register(return_command::registration())?;
     builder.register(seed::registration())?;
+    builder.register(setblock::registration())?;
     builder.register(setworldspawn::registration())?;
     builder.register(stop::registration())?;
     builder.register(summon::registration())?;
@@ -81,6 +86,7 @@ pub(crate) fn create_registered_dispatcher(
     builder.register(tick::registration())?;
     builder.register(time::registration())?;
     builder.register(weather::registration())?;
+    builder.register(invsee::registration()?)?;
     builder.extend(extension_commands.into_inner())?;
     builder.build_with_permissions()
 }
@@ -94,12 +100,17 @@ mod tests {
         CommandRegistration as ExtensionCommandRegistration, CommandRegistry,
         literal as extension_literal,
     };
-    use steel_registry::test_support::init_test_registry;
+    use crate::permission::PermissionKey;
+    use steel_registry::init_vanilla_registry;
     use steel_utils::Identifier;
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one cohesive test keeps the expected command graph shape auditable"
+    )]
     #[test]
     fn first_builtin_slice_has_the_expected_graph_shape() {
-        init_test_registry();
+        init_vanilla_registry();
         let Ok(dispatcher) = create_dispatcher() else {
             panic!("built-in commands should register");
         };
@@ -121,6 +132,7 @@ mod tests {
             [
                 "clear",
                 "deop",
+                "damage",
                 "difficulty",
                 "domain",
                 "enchant",
@@ -138,6 +150,7 @@ mod tests {
                 "perms",
                 "return",
                 "seed",
+                "setblock",
                 "setworldspawn",
                 "stop",
                 "summon",
@@ -146,7 +159,8 @@ mod tests {
                 "tellraw",
                 "tick",
                 "time",
-                "weather"
+                "weather",
+                "invsee"
             ]
         );
 
@@ -206,7 +220,7 @@ mod tests {
 
     #[test]
     fn startup_extensions_merge_after_builtins_with_namespaced_collision_fallbacks() {
-        init_test_registry();
+        init_vanilla_registry();
         let mut extensions = CommandRegistry::new();
         let registration =
             ExtensionCommandRegistration::new(Identifier::new("steel_test", "stop"), || {
@@ -240,12 +254,29 @@ mod tests {
     }
 
     #[test]
+    fn invsee_discovers_only_steel_namespaced_permissions() {
+        init_vanilla_registry();
+        let Ok(registered) = create_registered_dispatcher(CommandRegistry::new()) else {
+            panic!("built-in commands should register");
+        };
+        let permissions = registered
+            .permissions
+            .iter()
+            .map(PermissionKey::as_str)
+            .collect::<Vec<_>>();
+
+        assert!(permissions.contains(&"steel.command.invsee"));
+        assert!(permissions.contains(&"steel.command.invsee.modify"));
+        assert!(!permissions.contains(&"minecraft.command.invsee"));
+    }
+
+    #[test]
     #[expect(
         clippy::too_many_lines,
         reason = "one graph-shape test keeps execute paths and redirects directly comparable"
     )]
     fn execute_graph_uses_expected_redirects_and_argument_types() {
-        init_test_registry();
+        init_vanilla_registry();
         let Ok(dispatcher) = create_dispatcher() else {
             panic!("built-in commands should register");
         };

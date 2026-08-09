@@ -183,10 +183,6 @@ impl BlockBehavior for WeatheringCopperStairBlock {
             .update_shape(state, world, pos, direction, neighbor_pos, neighbor_state)
     }
 
-    fn is_randomly_ticking(&self, _state: BlockStateId) -> bool {
-        self.weathering.is_randomly_ticking()
-    }
-
     fn random_tick(&self, state: BlockStateId, world: &Arc<World>, pos: BlockPos) {
         self.weathering.change_over_time(state, world, pos);
     }
@@ -194,7 +190,7 @@ impl BlockBehavior for WeatheringCopperStairBlock {
 
 #[cfg(test)]
 mod tests {
-    use steel_registry::{test_support::init_test_registry, vanilla_blocks};
+    use steel_registry::{init_vanilla_registry, vanilla_blocks};
     use steel_utils::BlockPos;
 
     use crate::test_support::TestLevel;
@@ -203,7 +199,7 @@ mod tests {
 
     #[test]
     fn stair_update_shape_recomputes_shape_from_neighbors() {
-        init_test_registry();
+        init_vanilla_registry();
         let behavior = StairBlock::new(&vanilla_blocks::DARK_OAK_STAIRS);
         let state = vanilla_blocks::DARK_OAK_STAIRS
             .default_state()

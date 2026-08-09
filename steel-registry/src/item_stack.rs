@@ -1,15 +1,20 @@
 //! Item stack implementation.
 
-use std::io::{Cursor, Result, Write};
+use std::{
+    borrow::Cow,
+    io::{Cursor, Result, Write},
+};
 
 use rand::RngExt;
 
 use steel_utils::{
     DowncastType, Identifier,
     codec::VarInt,
+    java,
     random::{Random, xoroshiro::Xoroshiro},
     serial::{ReadFrom, WriteTo},
 };
+use text_components::TextComponent;
 
 use crate::{
     REGISTRY, RegistryEntry, RegistryExt,
@@ -19,17 +24,18 @@ use crate::{
         DataComponentPatch, DataComponentType,
         vanilla_components::{
             ATTACK_RANGE, ATTRIBUTE_MODIFIERS, AttackRange, BUNDLE_CONTENTS, CHARGED_PROJECTILES,
-            CONTAINER, CUSTOM_DATA, DAMAGE, DAMAGE_RESISTANT, DAMAGE_TYPE, ENCHANTABLE,
-            ENCHANTMENTS, EQUIPPABLE, Equippable, ItemAttributeModifiers, ItemEnchantments,
-            MAX_DAMAGE, MAX_STACK_SIZE, MINIMUM_ATTACK_CHARGE, OMINOUS_BOTTLE_AMPLIFIER,
-            OminousBottleAmplifier, PIERCING_WEAPON, PiercingWeapon, REPAIRABLE, TOOL, Tool,
-            UNBREAKABLE, WEAPON, Weapon,
+            CONTAINER, CUSTOM_DATA, CUSTOM_NAME, DAMAGE, DAMAGE_RESISTANT, DAMAGE_TYPE,
+            ENCHANTABLE, ENCHANTMENTS, EQUIPPABLE, Equippable, ITEM_NAME, ItemAttributeModifiers,
+            ItemEnchantments, MAX_DAMAGE, MAX_STACK_SIZE, MINIMUM_ATTACK_CHARGE,
+            OMINOUS_BOTTLE_AMPLIFIER, OminousBottleAmplifier, PIERCING_WEAPON, PiercingWeapon,
+            REPAIRABLE, STORED_ENCHANTMENTS, TOOL, Tool, UNBREAKABLE, WEAPON, WRITTEN_BOOK_CONTENT,
+            Weapon,
         },
     },
     enchantment_effect::EnchantmentEffectComponent,
     equipment::EquipmentSlot,
     item_stack_template::ItemStackTemplate,
-    items::ItemRef,
+    items::{Item, ItemRef},
     vanilla_items,
 };
 
@@ -553,6 +559,24 @@ impl ItemStack {
         self.get(ENCHANTMENTS)
     }
 
+    /// Vanilla `EnchantmentHelper.getEnchantmentsForCrafting`: enchanted books
+    /// expose `STORED_ENCHANTMENTS` to crafting operations, while every other
+    /// item exposes `ENCHANTMENTS`.
+    #[must_use]
+    pub fn get_enchantments_for_crafting(&self) -> Option<&ItemEnchantments> {
+        self.get(self.enchantment_component())
+    }
+
+    /// Vanilla `EnchantmentHelper.getComponentType`.
+    #[must_use]
+    fn enchantment_component(&self) -> DataComponentType<ItemEnchantments> {
+        if self.is(&vanilla_items::ENCHANTED_BOOK) {
+            STORED_ENCHANTMENTS
+        } else {
+            ENCHANTMENTS
+        }
+    }
+
     /// Mirrors Vanilla's component-based `ItemStack.isEnchantable` check.
     #[must_use]
     pub fn is_enchantable(&self) -> bool {
@@ -760,7 +784,7 @@ impl ItemStack {
 
     pub fn set_enchantments(&mut self, enchantments: &[(Identifier, u32)], add: bool) {
         let mut current = self
-            .get(ENCHANTMENTS)
+            .get(self.enchantment_component())
             .cloned()
             .unwrap_or_else(ItemEnchantments::empty);
 
@@ -773,17 +797,17 @@ impl ItemStack {
             }
         }
 
-        self.set(ENCHANTMENTS, current);
+        self.set(self.enchantment_component(), current);
     }
 
     /// Vanilla `ItemStack.enchant` → `Mutable.upgrade`: keeps the higher of existing vs new level.
     pub fn upgrade_enchantment(&mut self, enchantment: Identifier, level: u32) {
         let mut current = self
-            .get(ENCHANTMENTS)
+            .get(self.enchantment_component())
             .cloned()
             .unwrap_or_else(ItemEnchantments::empty);
         current.upgrade(enchantment, level);
-        self.set(ENCHANTMENTS, current);
+        self.set(self.enchantment_component(), current);
     }
 
     /// Changes the item type entirely.
@@ -987,7 +1011,34 @@ impl ItemStack {
 
         true
     }
+
+    /// Vanilla `ItemStack.getCustomName`: an explicit custom name, or a
+    /// nonblank written-book title.
+    #[must_use]
+    pub fn custom_name(&self) -> Option<Cow<'_, TextComponent>> {
+        if let Some(name) = self.get(CUSTOM_NAME) {
+            return Some(Cow::Borrowed(name));
+        }
+
+        let title = self.get(WRITTEN_BOOK_CONTENT)?.title().raw();
+        (!java::is_blank(title)).then(|| Cow::Owned(TextComponent::plain(title.to_owned())))
+    }
+
+    /// Returns the custom name if set, otherwise the effective `ITEM_NAME`
+    /// component.
+    ///
+    /// This does not apply item-class name overrides such as potion contents;
+    /// callers with access to item behaviors should use their behavior-aware
+    /// hover-name API.
+    #[must_use]
+    pub fn custom_or_component_name(&self) -> Cow<'_, TextComponent> {
+        self.custom_name()
+            .or_else(|| self.get(ITEM_NAME).map(Cow::Borrowed))
+            .unwrap_or(Cow::Borrowed(&EMPTY_NAME))
+    }
 }
+
+static EMPTY_NAME: TextComponent = TextComponent::new();
 
 fn validate_contained_item_sizes<'a>(
     items: impl IntoIterator<Item = &'a ItemStackTemplate>,
@@ -1002,6 +1053,24 @@ fn validate_contained_item_sizes<'a>(
         }
     }
     Ok(())
+}
+
+impl From<&ItemStack> for ItemStack {
+    fn from(stack: &Self) -> Self {
+        stack.to_owned()
+    }
+}
+
+impl From<ItemRef> for ItemStack {
+    fn from(item: ItemRef) -> Self {
+        Self::new(item)
+    }
+}
+
+impl From<&'static std::sync::LazyLock<Item>> for ItemStack {
+    fn from(item: &'static std::sync::LazyLock<Item>) -> Self {
+        Self::new(item)
+    }
 }
 
 impl std::fmt::Display for ItemStack {
@@ -1210,12 +1279,102 @@ fn decode_persistent_count(tag: Option<BorrowedNbtTag<'_, '_>>) -> Option<i32> {
 }
 
 #[cfg(test)]
+mod enchantment_tests {
+    use super::ItemStack;
+    use crate::{init_vanilla_registry, vanilla_enchantments, vanilla_items};
+
+    #[test]
+    fn stored_book_enchantments_are_not_active_item_enchantments() {
+        init_vanilla_registry();
+        let mut book = ItemStack::new(&vanilla_items::ENCHANTED_BOOK);
+        book.upgrade_enchantment(vanilla_enchantments::SHARPNESS.key.clone(), 3);
+
+        assert_eq!(
+            book.get_enchantment_level(&vanilla_enchantments::SHARPNESS.key),
+            0
+        );
+        assert_eq!(
+            book.get_enchantments_for_crafting().map(|enchantments| {
+                enchantments.get_level(&vanilla_enchantments::SHARPNESS.key)
+            }),
+            Some(3)
+        );
+    }
+}
+
+#[cfg(test)]
+mod name_tests {
+    use text_components::TextComponent;
+
+    use super::ItemStack;
+    use crate::data_components::components::{Filterable, WrittenBookContent};
+    use crate::data_components::vanilla_components::{CUSTOM_NAME, WRITTEN_BOOK_CONTENT};
+    use crate::init_vanilla_registry;
+    use crate::vanilla_items;
+
+    fn written_book(raw_title: &str, filtered_title: Option<&str>) -> ItemStack {
+        let content = WrittenBookContent::new(
+            Filterable::new(raw_title.to_owned(), filtered_title.map(ToOwned::to_owned)),
+            "Author".to_owned(),
+            0,
+            Vec::new(),
+            true,
+        );
+        let Ok(content) = content else {
+            panic!("test written-book content should be valid");
+        };
+        let mut book = ItemStack::new(&vanilla_items::WRITTEN_BOOK);
+        book.set(WRITTEN_BOOK_CONTENT, content);
+        book
+    }
+
+    #[test]
+    fn written_book_raw_title_is_its_custom_and_hover_name() {
+        init_vanilla_registry();
+        let book = written_book("Raw title", Some("Filtered title"));
+        let expected = TextComponent::plain("Raw title");
+
+        assert_eq!(book.custom_name().as_deref(), Some(&expected));
+        assert_eq!(book.custom_or_component_name().as_ref(), &expected);
+    }
+
+    #[test]
+    fn explicit_custom_name_takes_precedence_over_written_book_title() {
+        init_vanilla_registry();
+        let mut book = written_book("Book title", None);
+        let explicit = TextComponent::plain("Explicit name");
+        book.set(CUSTOM_NAME, explicit.clone());
+
+        assert_eq!(book.custom_name().as_deref(), Some(&explicit));
+        assert_eq!(book.custom_or_component_name().as_ref(), &explicit);
+    }
+
+    #[test]
+    fn written_book_title_uses_java_blank_rules() {
+        init_vanilla_registry();
+        let blank = written_book("\u{00a0}\u{202f}", None);
+        assert!(blank.custom_name().is_none());
+        let Some(default_name) = blank.get(crate::data_components::vanilla_components::ITEM_NAME)
+        else {
+            panic!("written book should have a default item name");
+        };
+        assert_eq!(blank.custom_or_component_name().as_ref(), default_name);
+
+        let next_line = written_book("\u{0085}", None);
+        assert_eq!(
+            next_line.custom_name().as_deref(),
+            Some(&TextComponent::plain("\u{0085}"))
+        );
+    }
+}
+
+#[cfg(test)]
 mod durability_tests {
     use steel_utils::random::xoroshiro::Xoroshiro;
 
     use super::ItemStack;
     use crate::data_components::vanilla_components::{ENCHANTMENTS, ItemEnchantments};
-    use crate::test_support::init_test_registry;
+    use crate::init_vanilla_registry;
     use crate::{vanilla_enchantments, vanilla_items};
 
     fn with_unbreaking(item: crate::items::ItemRef, level: u32) -> ItemStack {
@@ -1228,7 +1387,7 @@ mod durability_tests {
 
     #[test]
     fn item_damage_uses_generated_unbreaking_tool_requirements() {
-        init_test_registry();
+        init_vanilla_registry();
         let mut armor = with_unbreaking(&vanilla_items::DIAMOND_CHESTPLATE, 3);
         let mut tool = with_unbreaking(&vanilla_items::DIAMOND_PICKAXE, 3);
         let mut armor_random = Xoroshiro::from_seed_unmixed(42);
@@ -1268,7 +1427,7 @@ mod durability_tests {
 
     #[test]
     fn match_tool_supports_generated_direct_item_sets() {
-        init_test_registry();
+        init_vanilla_registry();
         let requirements = vanilla_enchantments::INFINITY.effects.ammo_use[0]
             .requirements
             .expect("Infinity ammo use should have a match_tool requirement");
@@ -1299,7 +1458,7 @@ mod persistence_tests {
         CUSTOM_DATA, JUKEBOX_PLAYABLE, LORE, MAX_DAMAGE, MAX_STACK_SIZE, TOOLTIP_DISPLAY,
     };
     use crate::data_components::{CustomData, JukeboxPlayable};
-    use crate::test_support::init_test_registry;
+    use crate::init_vanilla_registry;
     use crate::{REGISTRY, RegistryEntry, RegistryExt, vanilla_items, vanilla_jukebox_songs};
 
     fn with_borrowed_tag<R>(tag: NbtTag, visitor: impl FnOnce(BorrowedNbtTag<'_, '_>) -> R) -> R {
@@ -1363,7 +1522,7 @@ mod persistence_tests {
 
     #[test]
     fn persistent_item_count_uses_vanilla_integer_codec() {
-        init_test_registry();
+        init_vanilla_registry();
         let mut compound = stone_stack_nbt();
         compound.insert("count", 5.9_f64);
         assert_eq!(parse_stack(compound).map(|stack| stack.count()), Some(5));
@@ -1379,7 +1538,7 @@ mod persistence_tests {
 
     #[test]
     fn malformed_present_component_patch_rejects_the_item_stack() {
-        init_test_registry();
+        init_vanilla_registry();
         let mut components = NbtCompound::new();
         components.insert("minecraft:max_stack_size", 0);
         let mut compound = stone_stack_nbt();
@@ -1390,7 +1549,7 @@ mod persistence_tests {
 
     #[test]
     fn component_patches_stay_sanitized_against_the_item_prototype() {
-        init_test_registry();
+        init_vanilla_registry();
         let mut patch = crate::data_components::DataComponentPatch::new();
         patch.set(MAX_STACK_SIZE, 64);
         patch.remove(CUSTOM_DATA);
@@ -1418,7 +1577,7 @@ mod persistence_tests {
 
     #[test]
     fn strict_validation_checks_components_even_when_the_stack_is_empty() {
-        init_test_registry();
+        init_vanilla_registry();
         let mut patch = crate::data_components::DataComponentPatch::new();
         patch.set(MAX_DAMAGE, 1);
         let stack = ItemStack::with_count_and_patch(&vanilla_items::STONE, 0, patch);
@@ -1429,7 +1588,7 @@ mod persistence_tests {
 
     #[test]
     fn default_count_is_always_present_in_persistent_encoding() {
-        init_test_registry();
+        init_vanilla_registry();
         let stack = ItemStack::new(&vanilla_items::STONE);
         let NbtTag::Compound(compound) = stack.to_nbt_tag_ref() else {
             panic!("item stack should encode as a compound");
@@ -1440,7 +1599,7 @@ mod persistence_tests {
 
     #[test]
     fn untrusted_stack_rejects_direct_jukebox_holders() {
-        init_test_registry();
+        init_vanilla_registry();
         let mut component_bytes = Vec::new();
         VarInt(0)
             .write(&mut component_bytes)
@@ -1452,7 +1611,7 @@ mod persistence_tests {
 
     #[test]
     fn untrusted_stack_accepts_persistable_registry_holders() {
-        init_test_registry();
+        init_vanilla_registry();
         let reference = JukeboxPlayable::new(&vanilla_jukebox_songs::CAT);
         let mut component_bytes = Vec::new();
         reference
@@ -1467,7 +1626,7 @@ mod persistence_tests {
 
     #[test]
     fn untrusted_stack_uses_persistent_count_range() {
-        init_test_registry();
+        init_vanilla_registry();
         let bytes = untrusted_stack_bytes(100, None);
 
         assert!(ItemStack::read_untrusted(&mut Cursor::new(bytes.as_slice())).is_err());
@@ -1475,7 +1634,7 @@ mod persistence_tests {
 
     #[test]
     fn untrusted_stack_validates_component_persistent_constraints() {
-        init_test_registry();
+        init_vanilla_registry();
         let mut component_bytes = Vec::new();
         VarInt(0)
             .write(&mut component_bytes)
@@ -1493,7 +1652,7 @@ mod persistence_tests {
 
     #[test]
     fn save_omits_invalid_component_value_but_keeps_present_patch_field() {
-        init_test_registry();
+        init_vanilla_registry();
         let mut stack = ItemStack::new(&vanilla_items::STONE);
         stack.set(MAX_STACK_SIZE, 0);
 
@@ -1514,7 +1673,7 @@ mod persistence_tests {
 
     #[test]
     fn toggle_tooltips_updates_the_typed_display_component() {
-        init_test_registry();
+        init_vanilla_registry();
         let mut stack = ItemStack::new(&vanilla_items::STONE);
 
         stack.toggle_tooltips(&[(LORE.key.clone(), false)]);
@@ -1534,7 +1693,7 @@ mod persistence_tests {
 
     #[test]
     fn set_custom_data_recursively_merges_and_removes_empty_values() {
-        init_test_registry();
+        init_vanilla_registry();
         let mut stack = ItemStack::new(&vanilla_items::STONE);
         let empty = CustomData::default();
         stack.set_custom_data(&empty);

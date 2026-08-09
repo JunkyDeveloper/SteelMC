@@ -14,10 +14,7 @@ use steel_registry::{
 use steel_utils::{BlockPos, BlockStateId, Direction, types::UpdateFlags};
 
 use crate::{
-    behavior::{
-        BlockBehavior, BlockPlaceContext, BlockStateBehaviorExt,
-        blocks::vegetation::bonemealable::Bonemealable,
-    },
+    behavior::{BlockBehavior, BlockPlaceContext, blocks::vegetation::bonemealable::Bonemealable},
     world::{LevelReader, ScheduledTickAccess, World},
 };
 
@@ -226,10 +223,6 @@ impl BlockBehavior for BambooStalkBlock {
         Self::can_survive(world, pos)
     }
 
-    fn is_randomly_ticking(&self, state: BlockStateId) -> bool {
-        state.get_value(&BlockStateProperties::STAGE) == 0
-    }
-
     fn random_tick(&self, state: BlockStateId, world: &Arc<World>, pos: BlockPos) {
         if state.get_value(&BlockStateProperties::STAGE) != 0 {
             return;
@@ -277,13 +270,13 @@ impl BlockBehavior for BambooStalkBlock {
 
 #[cfg(test)]
 mod tests {
-    use steel_registry::{test_support::init_test_registry, vanilla_blocks};
+    use steel_registry::{init_vanilla_registry, vanilla_blocks};
 
     use super::*;
 
     #[test]
     fn bamboo_growth_does_not_read_leaves_from_non_bamboo_support() {
-        init_test_registry();
+        init_vanilla_registry();
         let dirt = vanilla_blocks::DIRT.default_state();
 
         assert_eq!(

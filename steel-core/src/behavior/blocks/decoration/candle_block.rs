@@ -28,7 +28,7 @@ use crate::{
     player,
     world::{
         ClipHitResult, LevelAccessor, LevelReader, ScheduledTickAccess, World,
-        game_event_context::GameEventContext,
+        game_event::GameEventContext,
     },
 };
 
@@ -70,7 +70,8 @@ impl BlockBehavior for CandleBlock {
         pos: BlockPos,
     ) -> bool {
         let below_pos = pos.below();
-        world.get_block_state(below_pos).is_face_sturdy_for_at(
+        world.is_face_sturdy_for(
+            world.get_block_state(below_pos),
             below_pos,
             Direction::Up,
             SupportType::Center,
@@ -192,7 +193,7 @@ impl BlockBehavior for CandleBlock {
 mod tests {
     use super::*;
     use crate::test_support::TestLevel;
-    use steel_registry::test_support::init_test_registry;
+    use steel_registry::init_vanilla_registry;
 
     fn supporting_level() -> TestLevel {
         TestLevel::default().with_block(
@@ -203,7 +204,7 @@ mod tests {
 
     #[test]
     fn waterlogged_candle_update_shape_schedules_water_tick() {
-        init_test_registry();
+        init_vanilla_registry();
 
         let candle = CandleBlock::new(&vanilla_blocks::CANDLE);
         let state = vanilla_blocks::CANDLE
@@ -235,7 +236,7 @@ mod tests {
 
     #[test]
     fn burning_projectile_lights_only_unlit_candles() {
-        init_test_registry();
+        init_vanilla_registry();
 
         let unlit = vanilla_blocks::CANDLE
             .default_state()
@@ -252,7 +253,7 @@ mod tests {
 
     #[test]
     fn water_placement_on_lit_candle_emits_block_change_event() {
-        init_test_registry();
+        init_vanilla_registry();
 
         let candle = CandleBlock::new(&vanilla_blocks::CANDLE);
         let state = vanilla_blocks::CANDLE

@@ -259,11 +259,6 @@ impl<T: CropLike + Bonemealable + Send + Sync> BlockBehavior for T {
         survival_update_shape(self, state, world, pos)
     }
 
-    fn is_randomly_ticking(&self, state: BlockStateId) -> bool {
-        // Only tick if not fully grown
-        !self.is_max_age(state)
-    }
-
     fn random_tick(&self, state: BlockStateId, world: &Arc<World>, pos: BlockPos) {
         if self.should_random_tick() {
             self.on_random_tick(state, world, pos);
@@ -305,7 +300,7 @@ impl<T: CropLike> Vegetation for T {
 
 #[cfg(test)]
 mod tests {
-    use steel_registry::{test_support::init_test_registry, vanilla_blocks};
+    use steel_registry::{init_vanilla_registry, vanilla_blocks};
 
     use crate::test_support::TestLevel;
 
@@ -319,7 +314,7 @@ mod tests {
 
     #[test]
     fn crop_survival_requires_vanilla_minimum_light() {
-        init_test_registry();
+        init_vanilla_registry();
 
         let crop = CropBlock::new(&vanilla_blocks::WHEAT);
         let state = vanilla_blocks::WHEAT.default_state();

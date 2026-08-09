@@ -1,4 +1,5 @@
 use std::cell::{Cell, RefCell};
+use std::slice;
 use std::sync::{Arc, OnceLock};
 
 use steel_registry::blocks::BlockRef;
@@ -6,19 +7,32 @@ use steel_registry::fluid::FluidRef;
 use steel_registry::game_events::GameEventRef;
 use steel_registry::sound_event::SoundEventRef;
 use steel_registry::{
-    test_support::init_test_registry, vanilla_blocks, vanilla_dimension_types, vanilla_fluids,
+    init_vanilla_registry, vanilla_blocks, vanilla_dimension_types, vanilla_fluids,
 };
 use steel_utils::types::{Difficulty, GameType, UpdateFlags};
 use steel_utils::{BlockPos, BlockStateId, Identifier};
 use tokio::runtime::{Builder, Runtime};
 use toml::map::Map;
 
+use crate::chunk::Chunk;
+use crate::chunk::chunk_holder::{ChunkHolder, TickingReadiness};
+use crate::chunk::chunk_ticket_manager::ChunkTicketLevel;
+use crate::chunk::section::{ChunkSection, Sections};
+use crate::chunk::status::ChunkStatus;
+use crate::entity::Entity;
 use crate::level_data::WorldGenerationSettings;
-use crate::world::game_event_context::GameEventContext;
+use crate::world::game_event::GameEventContext;
 use crate::world::{
     LevelAccessor, LevelReader, ScheduledTickAccess, World, WorldConfig, WorldStorageConfig,
 };
 use crate::worldgen::{ChunkGeneratorType, EmptyChunkGenerator};
+use steel_utils::ChunkPos;
+
+mod connection;
+mod player;
+
+pub(crate) use connection::TestConnection;
+pub(crate) use player::{TestPlayerBuilder, test_runtime_config};
 
 pub(crate) fn test_world() -> &'static Arc<World> {
     static WORLD: OnceLock<Arc<World>> = OnceLock::new();
@@ -27,6 +41,47 @@ pub(crate) fn test_world() -> &'static Arc<World> {
 
 pub(crate) fn fresh_test_world(key: &'static str) -> Arc<World> {
     create_test_world(key)
+}
+
+pub(crate) fn fresh_test_world_in_domain(domain: &'static str, key: &'static str) -> Arc<World> {
+    create_test_world_with_key(Identifier::new_static(domain, key), Difficulty::Normal)
+}
+
+pub(crate) fn insert_ready_full_chunk(world: &Arc<World>, pos: ChunkPos) -> Arc<ChunkHolder> {
+    let min_y = world.get_min_y();
+    let height = world.get_height();
+    let sections = (0..height / 16)
+        .map(|_| ChunkSection::new_empty())
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    let proto = Chunk::new(
+        Sections::from_owned(sections),
+        pos,
+        min_y,
+        height,
+        Arc::downgrade(world),
+    );
+    let _ = proto.promote_to_full();
+    let holder = Arc::new(ChunkHolder::new(
+        pos,
+        ChunkTicketLevel::BLOCK_TICKING_CHUNK,
+        Some(ChunkTicketLevel::BLOCK_TICKING_CHUNK),
+        min_y,
+        height,
+    ));
+    holder.insert_chunk(proto, ChunkStatus::Full);
+    assert_eq!(
+        holder.transition_ticking_readiness(TickingReadiness::BlockTicking),
+        Some(TickingReadiness::Unready)
+    );
+    let _ = world.chunk_map.chunks.insert_sync(pos, Arc::clone(&holder));
+    world.on_entity_chunk_loaded(pos);
+    world.update_entity_chunk_visibility(pos, holder.entity_visibility());
+    world
+        .chunk_map
+        .activate_block_entities(slice::from_ref(&holder));
+    world.chunk_map.rebuild_ticking_chunk_snapshot();
+    holder
 }
 
 pub(crate) fn cross_world_damage_test_world() -> &'static Arc<World> {
@@ -86,7 +141,11 @@ fn create_test_world(key: &'static str) -> Arc<World> {
 }
 
 fn create_test_world_with_difficulty(key: &'static str, difficulty: Difficulty) -> Arc<World> {
-    init_test_registry();
+    create_test_world_with_key(Identifier::vanilla_static(key), difficulty)
+}
+
+fn create_test_world_with_key(key: Identifier, difficulty: Difficulty) -> Arc<World> {
+    init_vanilla_registry();
     let resources = test_world_resources();
     let generator = Arc::new(ChunkGeneratorType::Empty(EmptyChunkGenerator::new()));
     let generator_config = toml::Value::Table(Map::new());
@@ -102,7 +161,7 @@ fn create_test_world_with_difficulty(key: &'static str, difficulty: Difficulty) 
         .runtime
         .block_on(World::new_with_config(
             Arc::clone(&resources.runtime),
-            Identifier::vanilla_static(key),
+            key,
             &vanilla_dimension_types::OVERWORLD,
             0,
             WorldConfig {
@@ -112,6 +171,7 @@ fn create_test_world_with_difficulty(key: &'static str, difficulty: Difficulty) 
                 generation_settings,
                 view_distance: 2,
                 simulation_distance: 2,
+                max_chained_neighbor_updates: 1_000_000,
                 compression: None,
                 is_flat: false,
                 sea_level: 63,
@@ -157,6 +217,7 @@ pub(crate) struct PlayedBlockSound {
 pub(crate) struct RecordedGameEvent {
     pub(crate) event: GameEventRef,
     pub(crate) pos: BlockPos,
+    pub(crate) source_entity_id: Option<i32>,
     pub(crate) affected_state: Option<BlockStateId>,
 }
 
@@ -322,6 +383,7 @@ impl LevelAccessor for TestLevel {
         self.game_events.borrow_mut().push(RecordedGameEvent {
             event,
             pos,
+            source_entity_id: context.source_entity().map(Entity::id),
             affected_state: context.affected_state(),
         });
     }

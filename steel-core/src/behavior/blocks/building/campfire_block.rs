@@ -12,8 +12,7 @@ use crate::{
     behavior::{BlockBehavior, BlockPlaceContext, block::schedule_placed_liquid_tick},
     entity::{Entity, InsideBlockEffectCollector, damage::DamageSource, projectile::Projectile},
     world::{
-        ClipHitResult, LevelAccessor, ScheduledTickAccess, World,
-        game_event_context::GameEventContext,
+        ClipHitResult, LevelAccessor, ScheduledTickAccess, World, game_event::GameEventContext,
     },
 };
 
@@ -199,12 +198,12 @@ mod tests {
     use super::*;
     use crate::test_support::TestLevel;
     use steel_registry::{
-        blocks::block_state_ext::BlockStateExt, test_support::init_test_registry, vanilla_blocks,
+        blocks::block_state_ext::BlockStateExt, init_vanilla_registry, vanilla_blocks,
     };
 
     #[test]
     fn lit_campfire_damages_living_entities() {
-        init_test_registry();
+        init_vanilla_registry();
         let campfire = CampfireBlock::new(&vanilla_blocks::CAMPFIRE, true, 1);
         let state = vanilla_blocks::CAMPFIRE
             .default_state()
@@ -215,7 +214,7 @@ mod tests {
 
     #[test]
     fn unlit_campfire_does_not_damage_entities() {
-        init_test_registry();
+        init_vanilla_registry();
         let campfire = CampfireBlock::new(&vanilla_blocks::CAMPFIRE, true, 1);
         let state = vanilla_blocks::CAMPFIRE
             .default_state()
@@ -226,7 +225,7 @@ mod tests {
 
     #[test]
     fn campfire_does_not_damage_non_living_entities() {
-        init_test_registry();
+        init_vanilla_registry();
         let campfire = CampfireBlock::new(&vanilla_blocks::SOUL_CAMPFIRE, false, 2);
         let state = vanilla_blocks::SOUL_CAMPFIRE
             .default_state()
@@ -237,7 +236,7 @@ mod tests {
 
     #[test]
     fn burning_projectile_lights_only_dry_unlit_campfires() {
-        init_test_registry();
+        init_vanilla_registry();
 
         let unlit = vanilla_blocks::CAMPFIRE
             .default_state()
@@ -267,7 +266,7 @@ mod tests {
 
     #[test]
     fn placement_state_sets_facing_and_signal_fire() {
-        init_test_registry();
+        init_vanilla_registry();
         let campfire = CampfireBlock::new(&vanilla_blocks::CAMPFIRE, true, 1);
 
         let state = campfire.placement_state(
@@ -287,7 +286,7 @@ mod tests {
 
     #[test]
     fn update_shape_recomputes_signal_fire_from_below() {
-        init_test_registry();
+        init_vanilla_registry();
         let campfire = CampfireBlock::new(&vanilla_blocks::CAMPFIRE, true, 1);
         let level = TestLevel::default();
         let state = vanilla_blocks::CAMPFIRE
@@ -309,7 +308,7 @@ mod tests {
 
     #[test]
     fn water_placement_extinguishes_lit_campfire() {
-        init_test_registry();
+        init_vanilla_registry();
         let level = TestLevel::default();
         let campfire = CampfireBlock::new(&vanilla_blocks::CAMPFIRE, true, 1);
         let state = vanilla_blocks::CAMPFIRE

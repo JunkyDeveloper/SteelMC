@@ -12,11 +12,14 @@ use crate::{
     inventory::container::Container,
 };
 
-use super::{Player, abilities::Abilities, experience::Experience};
+use super::{
+    Player, PlayerRespawnConfig, abilities::Abilities, experience::Experience, food_data::FoodData,
+    player_inventory::PlayerInventory,
+};
 
 /// Current data version for player saves.
 /// Increment when making breaking changes to the format.
-pub const PLAYER_DATA_VERSION: i32 = 5;
+pub const PLAYER_DATA_VERSION: i32 = 6;
 
 /// Persistent player data saved by Steel's storage backend.
 ///
@@ -108,6 +111,9 @@ pub struct PersistentPlayerData {
     /// Vanilla one-player root vehicle tree stored with the player instead of chunk data.
     pub root_vehicle: Option<PersistentRootVehicle>,
 
+    /// Vanilla per-player respawn configuration set by beds and respawn anchors.
+    pub respawn_config: Option<PlayerRespawnConfig>,
+
     /// Vanilla in-flight ender pearls stored with the player (`ServerPlayer.enderPearls`).
     pub ender_pearls: Vec<PersistentEnderPearl>,
 }
@@ -178,7 +184,7 @@ impl PersistentPlayerData {
         // Collect non-empty inventory slots
         let mut slots = Vec::new();
         // Main inventory (0-35) and equipment (36-42)
-        for slot in 0..43 {
+        for slot in 0..PlayerInventory::CONTAINER_SIZE {
             let item = inventory.get_item(slot);
             if !item.is_empty() {
                 slots.push(PersistentSlot {
@@ -236,6 +242,8 @@ impl PersistentPlayerData {
             score,
             seen_credits: player.has_seen_credits(),
             root_vehicle,
+            respawn_config: player.respawn_config(),
+
             ender_pearls,
         }
     }
@@ -274,6 +282,31 @@ impl PersistentPlayerData {
             attach: *vehicle.uuid().as_bytes(),
             entity,
         })
+    }
+}
+
+impl Player {
+    /// Resets domain-scoped gameplay data to the defaults used for a new player.
+    pub(crate) fn reset_domain_data_for_first_visit(&self) {
+        use glam::DVec3;
+
+        self.set_velocity(DVec3::ZERO);
+        self.set_on_ground(false);
+        self.set_fall_flying(false);
+        self.base()
+            .set_fire_freeze_state(EntityFireFreezeState::new());
+        self.sync_base_fire_freeze_entity_data();
+        self.set_health(self.get_max_health());
+        *self.abilities.lock() = Abilities::default();
+        *self.inventory.lock() = PlayerInventory::new();
+        *self.food_data.lock() = FoodData::new();
+
+        let mut experience = Experience::default();
+        experience.dirty = true;
+        *self.experience.lock() = experience;
+
+        self.set_score(0);
+        self.set_seen_credits(false);
     }
 }
 
@@ -329,8 +362,8 @@ impl PersistentPlayerData {
 
     /// Applies saved gameplay state without restoring world-local location data.
     ///
-    /// Used when the saved world no longer exists and the player must spawn at
-    /// the target world's default spawn instead of stale coordinates.
+    /// Used when the saved world is unavailable or differs from an explicitly
+    /// selected world, which must use the target spawn instead.
     pub fn apply_to_player_without_location(&self, player: &Player) {
         self.apply_to_player_inner(player, false);
     }
@@ -365,6 +398,7 @@ impl PersistentPlayerData {
                 self.has_visual_fire,
             ));
         player.sync_base_fire_freeze_entity_data();
+        player.set_respawn_position(self.respawn_config.clone(), false);
 
         // Health
         player.set_health(self.health);
@@ -382,13 +416,13 @@ impl PersistentPlayerData {
         {
             let mut inventory = player.inventory.lock();
             // Clear existing inventory first
-            for slot in 0..43 {
+            for slot in 0..PlayerInventory::CONTAINER_SIZE {
                 inventory.set_item(slot, ItemStack::empty());
             }
             // Restore saved items
             for slot_data in &self.inventory {
                 let slot_index = slot_data.slot as usize;
-                if slot_index < 43 {
+                if slot_index < PlayerInventory::CONTAINER_SIZE {
                     inventory.set_item(slot_index, slot_data.item.clone());
                 }
             }

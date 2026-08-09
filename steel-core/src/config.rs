@@ -54,6 +54,8 @@ pub struct RuntimeConfig {
     pub view_distance: u8,
     /// The simulation distance of the server.
     pub simulation_distance: u8,
+    /// Maximum queued neighbor-update tasks in one chained run; negative means unlimited.
+    pub max_chained_neighbor_updates: i32,
     /// Whether the server is in online mode.
     pub online_mode: bool,
     /// Optional authentication endpoint for online-mode `hasJoined` checks.
@@ -793,7 +795,7 @@ fn parse_difficulty(value: &str) -> Result<Difficulty, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use steel_registry::test_support::init_test_registry;
+    use steel_registry::init_vanilla_registry;
 
     #[test]
     fn online_mode_requires_the_authenticated_encryption_flow() {
@@ -807,7 +809,7 @@ mod tests {
     }
 
     fn registries() -> (WorldGeneratorRegistry, WorldStorageRegistry) {
-        init_test_registry();
+        init_vanilla_registry();
         let generators = WorldGeneratorRegistry::new_with_builtins()
             .expect("built-in generator registry should initialize");
         let storage = WorldStorageRegistry::new_with_builtins()

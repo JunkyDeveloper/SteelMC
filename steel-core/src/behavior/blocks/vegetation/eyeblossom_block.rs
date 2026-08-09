@@ -49,10 +49,6 @@ impl BlockBehavior for EyeblossomBlock {
         default_surviving_state(self.block, self, context)
     }
 
-    fn is_randomly_ticking(&self, _state: BlockStateId) -> bool {
-        true
-    }
-
     fn random_tick(&self, _state: BlockStateId, _world: &Arc<World>, _pos: BlockPos) {
         let _ = self.eyeblossom_type;
     }
@@ -64,7 +60,7 @@ impl BlockBehavior for EyeblossomBlock {
 
 #[cfg(test)]
 mod tests {
-    use steel_registry::{test_support::init_test_registry, vanilla_blocks};
+    use steel_registry::{init_vanilla_registry, vanilla_blocks};
     use steel_utils::BlockPos;
 
     use crate::test_support::TestLevel;
@@ -77,7 +73,7 @@ mod tests {
 
     #[test]
     fn eyeblossom_requires_vegetation_support() {
-        init_test_registry();
+        init_vanilla_registry();
         let behavior =
             EyeblossomBlock::new(&vanilla_blocks::CLOSED_EYEBLOSSOM, EyeblossomType::Closed);
         let pos = BlockPos::new(0, 64, 0);
