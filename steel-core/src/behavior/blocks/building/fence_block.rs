@@ -6,12 +6,13 @@ use std::sync::Arc;
 
 use crate::behavior::block::BlockBehavior;
 use crate::behavior::context::BlockPlaceContext;
-use crate::world::{ScheduledTickAccess, World};
+use crate::world::{LevelReader, ScheduledTickAccess, World};
 use steel_macros::block_behavior;
 use steel_registry::blocks::BlockRef;
 use steel_registry::blocks::block_state_ext::BlockStateExt;
 use steel_registry::blocks::properties::{BlockStateProperties, BoolProperty, Direction};
 use steel_registry::vanilla_block_tags::BlockTag;
+use steel_registry::vanilla_fluids;
 use steel_utils::{BlockPos, BlockStateId};
 
 /// Behavior for fence blocks.
@@ -46,6 +47,7 @@ impl FenceBlock {
 
     /// Checks if this fence should connect to the given neighbor state.
     fn connects_to(
+        world: &dyn LevelReader,
         neighbor_state: BlockStateId,
         neighbor_pos: BlockPos,
         direction: Direction,
@@ -90,7 +92,7 @@ impl FenceBlock {
             Direction::Up => Direction::Down,
             Direction::Down => Direction::Up,
         };
-        neighbor_state.is_face_sturdy_at(neighbor_pos, opposite)
+        world.is_face_sturdy(neighbor_state, neighbor_pos, opposite)
     }
 
     /// Gets the connection state for a position by checking all 4 horizontal neighbors.
@@ -100,25 +102,25 @@ impl FenceBlock {
         // Check north
         let north_pos = Direction::North.relative(pos);
         let north_state = world.get_block_state(north_pos);
-        let connects_north = Self::connects_to(north_state, north_pos, Direction::North);
+        let connects_north = Self::connects_to(world, north_state, north_pos, Direction::North);
         state = state.set_value(&Self::NORTH, connects_north);
 
         // Check east
         let east_pos = Direction::East.relative(pos);
         let east_state = world.get_block_state(east_pos);
-        let connects_east = Self::connects_to(east_state, east_pos, Direction::East);
+        let connects_east = Self::connects_to(world, east_state, east_pos, Direction::East);
         state = state.set_value(&Self::EAST, connects_east);
 
         // Check south
         let south_pos = Direction::South.relative(pos);
         let south_state = world.get_block_state(south_pos);
-        let connects_south = Self::connects_to(south_state, south_pos, Direction::South);
+        let connects_south = Self::connects_to(world, south_state, south_pos, Direction::South);
         state = state.set_value(&Self::SOUTH, connects_south);
 
         // Check west
         let west_pos = Direction::West.relative(pos);
         let west_state = world.get_block_state(west_pos);
-        let connects_west = Self::connects_to(west_state, west_pos, Direction::West);
+        let connects_west = Self::connects_to(world, west_state, west_pos, Direction::West);
         state = state.set_value(&Self::WEST, connects_west);
 
         state
@@ -130,10 +132,10 @@ impl BlockBehavior for FenceBlock {
         log::debug!(
             "FenceBlock::get_state_for_placement called for {:?} at {:?}",
             self.block.key,
-            context.relative_pos
+            context.place_pos()
         );
         Some(
-            self.get_connection_state(context.world, context.relative_pos)
+            self.get_connection_state(context.world, context.place_pos())
                 .set_value(&Self::WATERLOGGED, context.is_water_source()),
         )
     }
@@ -141,32 +143,82 @@ impl BlockBehavior for FenceBlock {
     fn update_shape(
         &self,
         state: BlockStateId,
-        _world: &dyn ScheduledTickAccess,
-        _pos: BlockPos,
+        world: &dyn ScheduledTickAccess,
+        pos: BlockPos,
         direction: Direction,
         neighbor_pos: BlockPos,
         neighbor_state: BlockStateId,
     ) -> BlockStateId {
+        if state.get_value(&Self::WATERLOGGED) {
+            let delay = world.fluid_tick_delay(&vanilla_fluids::WATER);
+            let _ = world.schedule_fluid_tick_default(pos, &vanilla_fluids::WATER, delay);
+        }
+
         // Only update for horizontal directions
         match direction {
             Direction::North => {
-                let connects = Self::connects_to(neighbor_state, neighbor_pos, Direction::North);
+                let connects =
+                    Self::connects_to(world, neighbor_state, neighbor_pos, Direction::North);
                 state.set_value(&Self::NORTH, connects)
             }
             Direction::East => {
-                let connects = Self::connects_to(neighbor_state, neighbor_pos, Direction::East);
+                let connects =
+                    Self::connects_to(world, neighbor_state, neighbor_pos, Direction::East);
                 state.set_value(&Self::EAST, connects)
             }
             Direction::South => {
-                let connects = Self::connects_to(neighbor_state, neighbor_pos, Direction::South);
+                let connects =
+                    Self::connects_to(world, neighbor_state, neighbor_pos, Direction::South);
                 state.set_value(&Self::SOUTH, connects)
             }
             Direction::West => {
-                let connects = Self::connects_to(neighbor_state, neighbor_pos, Direction::West);
+                let connects =
+                    Self::connects_to(world, neighbor_state, neighbor_pos, Direction::West);
                 state.set_value(&Self::WEST, connects)
             }
             // Vertical directions don't affect fence connections
             Direction::Up | Direction::Down => state,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use steel_registry::{test_support::init_test_registry, vanilla_blocks};
+    use steel_utils::BlockPos;
+
+    use crate::test_support::TestLevel;
+
+    use super::*;
+
+    #[test]
+    fn waterlogged_fence_update_shape_schedules_water_tick() {
+        init_test_registry();
+
+        let behavior = FenceBlock::new(&vanilla_blocks::OAK_FENCE);
+        let state = vanilla_blocks::OAK_FENCE
+            .default_state()
+            .set_value(&FenceBlock::WATERLOGGED, true);
+        let level = TestLevel::default();
+
+        let updated = behavior.update_shape(
+            state,
+            &level,
+            BlockPos::ZERO,
+            Direction::Up,
+            Direction::Up.relative(BlockPos::ZERO),
+            vanilla_blocks::AIR.default_state(),
+        );
+
+        assert_eq!(updated, state);
+        assert_eq!(
+            level
+                .scheduled_fluid_ticks
+                .borrow()
+                .iter()
+                .map(|tick| (tick.fluid, tick.delay))
+                .collect::<Vec<_>>(),
+            vec![(&vanilla_fluids::WATER, 5)]
+        );
     }
 }

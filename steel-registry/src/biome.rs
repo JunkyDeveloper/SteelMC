@@ -5,9 +5,9 @@ use simdnbt::ToNbtTag;
 use simdnbt::owned::NbtTag;
 use steel_utils::Identifier;
 
-use crate::REGISTRY;
 use crate::TaggedRegistryExt;
 use crate::sound_event::SoundEventRef;
+use crate::{REGISTRY, RegistryTags};
 
 #[derive(Debug)]
 pub struct Biome {
@@ -244,7 +244,11 @@ impl ToNbtTag for &Biome {
 
         // Carvers (all treated as "air" step)
         let mut carvers_compound = NbtCompound::new();
-        let air_carvers: Vec<String> = self.carvers.iter().map(|id| id.to_string()).collect();
+        let air_carvers: Vec<String> = self
+            .carvers
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
         carvers_compound.insert("air", NbtTag::List(NbtList::from(air_carvers)));
         compound.insert("carvers", NbtTag::Compound(carvers_compound));
 
@@ -253,7 +257,8 @@ impl ToNbtTag for &Biome {
             .features
             .iter()
             .map(|step| {
-                let step_strings: Vec<String> = step.iter().map(|id| id.to_string()).collect();
+                let step_strings: Vec<String> =
+                    step.iter().map(std::string::ToString::to_string).collect();
                 NbtList::from(step_strings)
             })
             .collect();
@@ -268,7 +273,7 @@ pub type BiomeRef = &'static Biome;
 pub struct BiomeRegistry {
     biomes_by_id: Vec<BiomeRef>,
     biomes_by_key: FxHashMap<Identifier, usize>,
-    tags: FxHashMap<Identifier, Vec<Identifier>>,
+    tags: RegistryTags,
     allows_registering: bool,
 }
 
@@ -278,7 +283,7 @@ impl BiomeRegistry {
         Self {
             biomes_by_id: Vec::new(),
             biomes_by_key: FxHashMap::default(),
-            tags: FxHashMap::default(),
+            tags: RegistryTags::default(),
             allows_registering: true,
         }
     }
@@ -314,6 +319,8 @@ impl Default for BiomeRegistry {
 
 crate::impl_registry_ext!(BiomeRegistry, Biome, biomes_by_id, biomes_by_key);
 crate::impl_tagged_registry!(BiomeRegistry, biomes_by_key, "biome");
+
+crate::impl_registry_entry_eq!(Biome);
 
 impl crate::RegistryEntry for Biome {
     fn key(&self) -> &Identifier {

@@ -1,8 +1,12 @@
-use crate::shared_structs::{BiomeCondition, SpawnConditionEntry, TextComponentJson};
+use crate::shared_structs::{
+    BiomeCondition, BiomeConditionTarget, SpawnConditionEntry, TextComponentJson,
+};
 use heck::ToShoutySnakeCase;
 use proc_macro2::TokenStream;
 use proc_macro2::{Ident, Span};
 use quote::quote;
+use rustc_hash::FxHashMap;
+use serde::Deserialize;
 use std::fs;
 use steel_utils::Identifier;
 
@@ -48,12 +52,11 @@ pub fn generate_option<T, F>(opt: &Option<T>, f: F) -> TokenStream
 where
     F: FnOnce(&T) -> TokenStream,
 {
-    match opt {
-        Some(val) => {
-            let inner = f(val);
-            quote! { Some(#inner) }
-        }
-        None => quote! { None },
+    if let Some(val) = opt {
+        let inner = f(val);
+        quote! { Some(#inner) }
+    } else {
+        quote! { None }
     }
 }
 
@@ -67,12 +70,25 @@ where
 
 pub fn generate_biome_condition(condition: &BiomeCondition) -> TokenStream {
     let condition_type = condition.condition_type.as_str();
-    let biomes = condition.biomes.as_str();
+    let biomes = generate_biome_condition_target(&condition.biomes);
 
     quote! {
         BiomeCondition {
             condition_type: #condition_type,
             biomes: #biomes,
+        }
+    }
+}
+
+fn generate_biome_condition_target(target: &BiomeConditionTarget) -> TokenStream {
+    match target {
+        BiomeConditionTarget::Tag(tag) => {
+            let tag = generate_identifier(tag);
+            quote! { crate::shared_structs::BiomeConditionTarget::Tag(#tag) }
+        }
+        BiomeConditionTarget::Direct(biome) => {
+            let biome = generate_identifier(biome);
+            quote! { crate::shared_structs::BiomeConditionTarget::Direct(#biome) }
         }
     }
 }
@@ -90,9 +106,68 @@ pub fn generate_spawn_condition_entry(entry: &SpawnConditionEntry) -> TokenStrea
 }
 pub fn generate_text_component(component: &TextComponentJson) -> TokenStream {
     let translate = component.translate.as_str();
+    let Some(color) = component.color.as_deref() else {
+        return quote! {
+            TextComponent::translated(TranslatedMessage::new(#translate, None))
+        };
+    };
+    let color = generate_text_color(color);
     quote! {
-        TextComponent::translated(TranslatedMessage::new(#translate, None))
+        TextComponent {
+            content: text_components::content::Content::Translate(
+                TranslatedMessage::new(#translate, None),
+            ),
+            format: text_components::format::Format {
+                color: Some(#color),
+                font: None,
+                bold: None,
+                italic: None,
+                underlined: None,
+                strikethrough: None,
+                obfuscated: None,
+                shadow_color: None,
+            },
+            children: vec![],
+            interactions: text_components::interactivity::Interactivity::new(),
+        }
     }
+}
+
+fn generate_text_color(color: &str) -> TokenStream {
+    match color {
+        "black" => quote! { text_components::format::Color::Black },
+        "dark_blue" => quote! { text_components::format::Color::DarkBlue },
+        "dark_green" => quote! { text_components::format::Color::DarkGreen },
+        "dark_aqua" => quote! { text_components::format::Color::DarkAqua },
+        "dark_red" => quote! { text_components::format::Color::DarkRed },
+        "dark_purple" => quote! { text_components::format::Color::DarkPurple },
+        "gold" => quote! { text_components::format::Color::Gold },
+        "gray" => quote! { text_components::format::Color::Gray },
+        "dark_gray" => quote! { text_components::format::Color::DarkGray },
+        "blue" => quote! { text_components::format::Color::Blue },
+        "green" => quote! { text_components::format::Color::Green },
+        "aqua" => quote! { text_components::format::Color::Aqua },
+        "red" => quote! { text_components::format::Color::Red },
+        "light_purple" => quote! { text_components::format::Color::LightPurple },
+        "yellow" => quote! { text_components::format::Color::Yellow },
+        "white" => quote! { text_components::format::Color::White },
+        _ => generate_rgb_text_color(color),
+    }
+}
+
+fn generate_rgb_text_color(color: &str) -> TokenStream {
+    let Some(hex) = color.strip_prefix('#').filter(|hex| {
+        hex.len() == 6 && hex.is_ascii() && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+    }) else {
+        panic!("Unknown text color: {color}");
+    };
+    let red = u8::from_str_radix(&hex[0..2], 16)
+        .unwrap_or_else(|_| panic!("Invalid red channel in text color: {color}"));
+    let green = u8::from_str_radix(&hex[2..4], 16)
+        .unwrap_or_else(|_| panic!("Invalid green channel in text color: {color}"));
+    let blue = u8::from_str_radix(&hex[4..6], 16)
+        .unwrap_or_else(|_| panic!("Invalid blue channel in text color: {color}"));
+    quote! { text_components::format::Color::Rgb(#red, #green, #blue) }
 }
 
 pub fn read_variants_from_dir<T: serde::de::DeserializeOwned>(subdir: &str) -> Vec<(String, T)> {
@@ -114,14 +189,14 @@ pub fn read_variants_from_dir<T: serde::de::DeserializeOwned>(subdir: &str) -> V
         let content = fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("Failed to read {}: {e}", path.display()));
         let value: T = serde_json::from_str(&content)
-            .unwrap_or_else(|e| panic!("Failed to parse {}: {}", name, e));
+            .unwrap_or_else(|e| panic!("Failed to parse {name}: {e}"));
         out.push((name, value));
     }
-    let order = vanilla_variant_order(subdir);
+    let order = extracted_variant_order(subdir);
     out.sort_by_key(|(name, _)| {
         order
             .iter()
-            .position(|ordered| *ordered == name)
+            .position(|ordered| ordered == name)
             .unwrap_or_else(|| panic!("Unknown vanilla {subdir} variant in extracted data: {name}"))
     });
     assert_eq!(
@@ -134,95 +209,32 @@ pub fn read_variants_from_dir<T: serde::de::DeserializeOwned>(subdir: &str) -> V
     out
 }
 
-pub fn vanilla_variant_id(subdir: &str, key: &str) -> usize {
-    let path = key.strip_prefix("minecraft:").unwrap_or(key);
-    vanilla_variant_order(subdir)
-        .iter()
-        .position(|ordered| *ordered == path)
-        .unwrap_or_else(|| panic!("Unknown vanilla {subdir} variant default: {key}"))
+#[derive(Deserialize)]
+struct ExtractedVariantRegistryEntry {
+    id: usize,
+    key: String,
 }
 
-fn vanilla_variant_order(subdir: &str) -> &'static [&'static str] {
-    match subdir {
-        "cat_variant" => &[
-            "tabby",
-            "black",
-            "red",
-            "siamese",
-            "british_shorthair",
-            "calico",
-            "persian",
-            "ragdoll",
-            "white",
-            "jellie",
-            "all_black",
-        ],
-        "cat_sound_variant" => &["classic", "royal"],
-        "cow_variant" => &["temperate", "warm", "cold"],
-        "cow_sound_variant" => &["classic", "moody"],
-        "wolf_variant" => &[
-            "pale", "spotted", "snowy", "black", "ashen", "rusty", "woods", "chestnut", "striped",
-        ],
-        "wolf_sound_variant" => &["classic", "puglin", "sad", "angry", "grumpy", "big", "cute"],
-        "frog_variant" => &["temperate", "warm", "cold"],
-        "pig_variant" => &["temperate", "warm", "cold"],
-        "pig_sound_variant" => &["classic", "big", "mini"],
-        "chicken_variant" => &["temperate", "warm", "cold"],
-        "chicken_sound_variant" => &["classic", "picky"],
-        "zombie_nautilus_variant" => &["temperate", "warm"],
-        "painting_variant" => &[
-            "kebab",
-            "aztec",
-            "alban",
-            "aztec2",
-            "bomb",
-            "plant",
-            "wasteland",
-            "pool",
-            "courbet",
-            "sea",
-            "sunset",
-            "creebet",
-            "wanderer",
-            "graham",
-            "match",
-            "bust",
-            "stage",
-            "void",
-            "skull_and_roses",
-            "wither",
-            "fighters",
-            "pointer",
-            "pigscene",
-            "burning_skull",
-            "skeleton",
-            "earth",
-            "wind",
-            "water",
-            "fire",
-            "donkey_kong",
-            "baroque",
-            "humble",
-            "meditative",
-            "prairie_ride",
-            "unpacked",
-            "backyard",
-            "bouquet",
-            "cavebird",
-            "changing",
-            "cotan",
-            "endboss",
-            "fern",
-            "finding",
-            "lowmist",
-            "orb",
-            "owlemons",
-            "passage",
-            "pond",
-            "sunflowers",
-            "tides",
-            "dennis",
-        ],
-        _ => panic!("Missing vanilla variant order for {subdir}"),
-    }
+fn extracted_variant_order(subdir: &str) -> Vec<String> {
+    const ASSET: &str = "build_assets/entity_variant_registries.json";
+
+    let mut registries: FxHashMap<String, Vec<ExtractedVariantRegistryEntry>> =
+        read_json_asset(ASSET);
+    let mut entries = registries
+        .remove(subdir)
+        .unwrap_or_else(|| panic!("Missing vanilla {subdir} registry in {ASSET}"));
+    sort_contiguous_registry_entries(&mut entries, ASSET, |entry| entry.id);
+
+    entries
+        .into_iter()
+        .map(|entry| {
+            let Some(key) = entry.key.strip_prefix("minecraft:") else {
+                panic!(
+                    "Expected vanilla {subdir} registry key in {ASSET}, got {}",
+                    entry.key
+                );
+            };
+            key.to_owned()
+        })
+        .collect()
 }

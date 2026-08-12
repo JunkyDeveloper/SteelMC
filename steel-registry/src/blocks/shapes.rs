@@ -93,7 +93,7 @@ impl VoxelShape {
     /// Returns true if this shape has no non-empty boxes.
     #[must_use]
     pub fn is_empty(self) -> bool {
-        self.boxes.iter().all(|aabb| aabb.is_empty())
+        self.boxes.iter().all(steel_utils::geometry::Aabb::is_empty)
     }
 
     /// Returns the minimum coordinate on `axis`, or positive infinity for an empty shape.
@@ -232,7 +232,7 @@ impl OffsetVoxelShape {
     }
 }
 
-fn axis_offset(offset: DVec3, axis: Axis) -> f64 {
+const fn axis_offset(offset: DVec3, axis: Axis) -> f64 {
     match axis {
         Axis::X => offset.x,
         Axis::Y => offset.y,
@@ -240,10 +240,10 @@ fn axis_offset(offset: DVec3, axis: Axis) -> f64 {
     }
 }
 
-/// An ID referencing a registered VoxelShape in the ShapeRegistry.
+/// An ID referencing a registered `VoxelShape` in the `ShapeRegistry`.
 ///
 /// Use this to refer to shapes in a compact way. The actual shape data
-/// can be retrieved from the ShapeRegistry using this ID.
+/// can be retrieved from the `ShapeRegistry` using this ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ShapeId(pub u16);
 
@@ -255,9 +255,9 @@ impl ShapeId {
     pub const FULL_BLOCK: ShapeId = ShapeId(1);
 }
 
-/// Registry for VoxelShapes.
+/// Registry for `VoxelShapes`.
 ///
-/// Shapes are registered once and referenced by ShapeId. This allows
+/// Shapes are registered once and referenced by `ShapeId`. This allows
 /// deduplication of shapes and compact storage of shape references.
 ///
 /// Vanilla shapes are registered at startup. Plugins can register
@@ -320,18 +320,18 @@ impl ShapeRegistry {
 
     /// Returns the number of registered shapes.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.shapes.len()
     }
 
     /// Returns true if no shapes are registered.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.shapes.is_empty()
     }
 
     /// Freezes the registry, preventing further registrations.
-    pub fn freeze(&mut self) {
+    pub const fn freeze(&mut self) {
         self.allows_registering = false;
     }
 }
@@ -547,9 +547,10 @@ pub fn is_offset_shape_full_block(shape: OffsetVoxelShape) -> bool {
 /// operation guard for unbounded outside-space results.
 #[must_use]
 pub fn join_is_not_empty(first: VoxelShape, second: VoxelShape, op: BooleanOp) -> bool {
-    if op.apply(false, false) {
-        panic!("join_is_not_empty cannot use an operation that includes empty outside space");
-    }
+    assert!(
+        !op.apply(false, false),
+        "join_is_not_empty cannot use an operation that includes empty outside space"
+    );
 
     let first_empty = first.is_empty();
     let second_empty = second.is_empty();
@@ -617,9 +618,10 @@ pub fn join_unoptimized_boxes(
     second: VoxelShape,
     op: BooleanOp,
 ) -> Vec<BlockLocalAabb> {
-    if op.apply(false, false) {
-        panic!("join_unoptimized_boxes cannot use an operation that includes empty outside space");
-    }
+    assert!(
+        !op.apply(false, false),
+        "join_unoptimized_boxes cannot use an operation that includes empty outside space"
+    );
 
     if first.is_empty() && second.is_empty() {
         return Vec::new();
@@ -673,7 +675,7 @@ fn shape_edges(first: VoxelShape, second: VoxelShape, axis: Axis) -> Vec<f64> {
 }
 
 fn sort_and_dedup_voxel_edges(edges: &mut Vec<f64>) {
-    edges.sort_by(|a, b| a.total_cmp(b));
+    edges.sort_by(f64::total_cmp);
     edges.dedup_by(|a, b| (*a - *b).abs() <= VOXEL_EPSILON);
 }
 
@@ -919,6 +921,82 @@ pub fn is_offset_face_sturdy(
     }
 }
 
+/// Checks whether an owned union of block-local boxes is sturdy on a face.
+///
+/// Static registry shapes use [`VoxelShape`], while dynamic blocks resolve
+/// their boxes from live world data. Both representations use the same face
+/// coverage rules.
+#[must_use]
+pub fn is_block_local_face_sturdy(
+    boxes: &[BlockLocalAabb],
+    direction: Direction,
+    support_type: SupportType,
+) -> bool {
+    match support_type {
+        SupportType::Full => {
+            block_local_face_rectangles_cover(boxes, direction, 0.0, 1.0, 0.0, 1.0)
+        }
+        SupportType::Center => match direction {
+            Direction::Down | Direction::Up => block_local_face_rectangles_cover(
+                boxes,
+                direction,
+                CENTER_SUPPORT_MIN,
+                CENTER_SUPPORT_MAX,
+                CENTER_SUPPORT_MIN,
+                CENTER_SUPPORT_MAX,
+            ),
+            Direction::North | Direction::South => block_local_face_rectangles_cover(
+                boxes,
+                direction,
+                CENTER_SUPPORT_MIN,
+                CENTER_SUPPORT_MAX,
+                0.0,
+                CENTER_SUPPORT_Y_MAX,
+            ),
+            Direction::West | Direction::East => block_local_face_rectangles_cover(
+                boxes,
+                direction,
+                0.0,
+                CENTER_SUPPORT_Y_MAX,
+                CENTER_SUPPORT_MIN,
+                CENTER_SUPPORT_MAX,
+            ),
+        },
+        SupportType::Rigid => match direction {
+            Direction::Down | Direction::Up => {
+                block_local_face_rectangles_cover(boxes, direction, 0.0, RIGID_BORDER, 0.0, 1.0)
+                    && block_local_face_rectangles_cover(
+                        boxes,
+                        direction,
+                        1.0 - RIGID_BORDER,
+                        1.0,
+                        0.0,
+                        1.0,
+                    )
+                    && block_local_face_rectangles_cover(
+                        boxes,
+                        direction,
+                        RIGID_BORDER,
+                        1.0 - RIGID_BORDER,
+                        0.0,
+                        RIGID_BORDER,
+                    )
+                    && block_local_face_rectangles_cover(
+                        boxes,
+                        direction,
+                        RIGID_BORDER,
+                        1.0 - RIGID_BORDER,
+                        1.0 - RIGID_BORDER,
+                        1.0,
+                    )
+            }
+            Direction::North | Direction::South | Direction::West | Direction::East => {
+                block_local_face_rectangles_cover(boxes, direction, 0.0, 1.0, 0.0, 1.0)
+            }
+        },
+    }
+}
+
 #[derive(Clone, Copy)]
 struct FaceRect {
     min_a: f64,
@@ -929,7 +1007,8 @@ struct FaceRect {
 
 const FACE_EPSILON: f64 = 1.0e-6;
 
-fn face_rectangles_cover(
+#[must_use]
+pub fn face_rectangles_cover(
     shape: VoxelShape,
     direction: Direction,
     target_min_a: f64,
@@ -937,9 +1016,27 @@ fn face_rectangles_cover(
     target_min_b: f64,
     target_max_b: f64,
 ) -> bool {
+    block_local_face_rectangles_cover(
+        shape.boxes(),
+        direction,
+        target_min_a,
+        target_max_a,
+        target_min_b,
+        target_max_b,
+    )
+}
+
+fn block_local_face_rectangles_cover(
+    boxes: &[BlockLocalAabb],
+    direction: Direction,
+    target_min_a: f64,
+    target_max_a: f64,
+    target_min_b: f64,
+    target_max_b: f64,
+) -> bool {
     let mut rects = Vec::new();
-    for aabb in shape {
-        let Some(rect) = face_rect_for_aabb(*aabb, direction) else {
+    for &aabb in boxes {
+        let Some(rect) = face_rect_for_aabb(aabb, direction) else {
             continue;
         };
         if rect.max_a <= target_min_a
@@ -966,7 +1063,8 @@ fn face_rectangles_cover(
     )
 }
 
-fn offset_face_rectangles_cover(
+#[must_use]
+pub fn offset_face_rectangles_cover(
     shape: OffsetVoxelShape,
     direction: Direction,
     target_min_a: f64,
@@ -1050,42 +1148,60 @@ fn face_rects_cover_target(
 
 fn face_rect_for_aabb(aabb: BlockLocalAabb, direction: Direction) -> Option<FaceRect> {
     let rect = match direction {
-        Direction::Down if aabb.min_y() <= FACE_EPSILON => FaceRect {
-            min_a: aabb.min_x(),
-            max_a: aabb.max_x(),
-            min_b: aabb.min_z(),
-            max_b: aabb.max_z(),
-        },
-        Direction::Up if aabb.max_y() >= 1.0 - FACE_EPSILON => FaceRect {
-            min_a: aabb.min_x(),
-            max_a: aabb.max_x(),
-            min_b: aabb.min_z(),
-            max_b: aabb.max_z(),
-        },
-        Direction::North if aabb.min_z() <= FACE_EPSILON => FaceRect {
-            min_a: aabb.min_x(),
-            max_a: aabb.max_x(),
-            min_b: aabb.min_y(),
-            max_b: aabb.max_y(),
-        },
-        Direction::South if aabb.max_z() >= 1.0 - FACE_EPSILON => FaceRect {
-            min_a: aabb.min_x(),
-            max_a: aabb.max_x(),
-            min_b: aabb.min_y(),
-            max_b: aabb.max_y(),
-        },
-        Direction::West if aabb.min_x() <= FACE_EPSILON => FaceRect {
-            min_a: aabb.min_y(),
-            max_a: aabb.max_y(),
-            min_b: aabb.min_z(),
-            max_b: aabb.max_z(),
-        },
-        Direction::East if aabb.max_x() >= 1.0 - FACE_EPSILON => FaceRect {
-            min_a: aabb.min_y(),
-            max_a: aabb.max_y(),
-            min_b: aabb.min_z(),
-            max_b: aabb.max_z(),
-        },
+        Direction::Down if aabb.min_y() <= FACE_EPSILON && aabb.max_y() >= -FACE_EPSILON => {
+            FaceRect {
+                min_a: aabb.min_x(),
+                max_a: aabb.max_x(),
+                min_b: aabb.min_z(),
+                max_b: aabb.max_z(),
+            }
+        }
+        Direction::Up
+            if aabb.max_y() >= 1.0 - FACE_EPSILON && aabb.min_y() <= 1.0 + FACE_EPSILON =>
+        {
+            FaceRect {
+                min_a: aabb.min_x(),
+                max_a: aabb.max_x(),
+                min_b: aabb.min_z(),
+                max_b: aabb.max_z(),
+            }
+        }
+        Direction::North if aabb.min_z() <= FACE_EPSILON && aabb.max_z() >= -FACE_EPSILON => {
+            FaceRect {
+                min_a: aabb.min_x(),
+                max_a: aabb.max_x(),
+                min_b: aabb.min_y(),
+                max_b: aabb.max_y(),
+            }
+        }
+        Direction::South
+            if aabb.max_z() >= 1.0 - FACE_EPSILON && aabb.min_z() <= 1.0 + FACE_EPSILON =>
+        {
+            FaceRect {
+                min_a: aabb.min_x(),
+                max_a: aabb.max_x(),
+                min_b: aabb.min_y(),
+                max_b: aabb.max_y(),
+            }
+        }
+        Direction::West if aabb.min_x() <= FACE_EPSILON && aabb.max_x() >= -FACE_EPSILON => {
+            FaceRect {
+                min_a: aabb.min_y(),
+                max_a: aabb.max_y(),
+                min_b: aabb.min_z(),
+                max_b: aabb.max_z(),
+            }
+        }
+        Direction::East
+            if aabb.max_x() >= 1.0 - FACE_EPSILON && aabb.min_x() <= 1.0 + FACE_EPSILON =>
+        {
+            FaceRect {
+                min_a: aabb.min_y(),
+                max_a: aabb.max_y(),
+                min_b: aabb.min_z(),
+                max_b: aabb.max_z(),
+            }
+        }
         _ => return None,
     };
 
@@ -1096,7 +1212,7 @@ fn face_rect_for_aabb(aabb: BlockLocalAabb, direction: Direction) -> Option<Face
 }
 
 fn sort_and_dedup_edges(edges: &mut Vec<f64>) {
-    edges.sort_by(|a, b| a.total_cmp(b));
+    edges.sort_by(f64::total_cmp);
     edges.dedup_by(|a, b| (*a - *b).abs() <= FACE_EPSILON);
 }
 
@@ -1307,6 +1423,22 @@ mod tests {
         assert!(is_face_full(
             VoxelShape::from_boxes(QUADRANT_TOP_FACE),
             Direction::Up
+        ));
+    }
+
+    #[test]
+    fn dynamic_face_support_uses_union_at_the_block_boundary() {
+        assert!(is_block_local_face_sturdy(
+            QUADRANT_TOP_FACE,
+            Direction::Up,
+            SupportType::Full,
+        ));
+
+        let beyond_east_face = [BlockLocalAabb::new(1.25, 0.0, 0.0, 2.25, 1.0, 1.0)];
+        assert!(!is_block_local_face_sturdy(
+            &beyond_east_face,
+            Direction::East,
+            SupportType::Full,
         ));
     }
 

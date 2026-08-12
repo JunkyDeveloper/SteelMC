@@ -2,6 +2,8 @@ use glam::DVec3;
 use rustc_hash::FxHashMap;
 use steel_utils::Identifier;
 
+use crate::{RegistryTags, blocks::behavior::PushReaction};
+
 /// Mob category for spawn classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MobCategory {
@@ -13,6 +15,27 @@ pub enum MobCategory {
     WaterCreature,
     WaterAmbient,
     Misc,
+}
+
+impl MobCategory {
+    #[must_use]
+    pub const fn despawn_distance(self) -> i32 {
+        match self {
+            Self::WaterAmbient => 64,
+            Self::Monster
+            | Self::Creature
+            | Self::Ambient
+            | Self::Axolotls
+            | Self::UndergroundWaterCreature
+            | Self::WaterCreature
+            | Self::Misc => 128,
+        }
+    }
+
+    #[must_use]
+    pub const fn no_despawn_distance(self) -> i32 {
+        32
+    }
 }
 
 /// Vanilla attachment point kind used by `EntityDimensions`.
@@ -109,6 +132,17 @@ impl EntityAttachments {
             },
         );
         rotate_attachment_point(point, yaw_degrees)
+    }
+
+    #[must_use]
+    pub fn get_average(self, attachment: EntityAttachment, dimensions: EntityDimensions) -> DVec3 {
+        let Some(points) = self.points(attachment) else {
+            return fallback_point(attachment, dimensions);
+        };
+
+        points.iter().fold(DVec3::ZERO, |sum, point| {
+            sum + point.scaled(self.scale_x, self.scale_y, self.scale_z)
+        }) / points.len() as f64
     }
 
     fn points(self, attachment: EntityAttachment) -> Option<&'static [EntityAttachmentPoint]> {
@@ -212,6 +246,8 @@ pub struct EntityFlags {
     pub is_sensitive_to_water: bool,
     pub can_breathe_underwater: bool,
     pub can_be_seen_as_enemy: bool,
+    /// Default response returned by this vanilla entity type when pushed by a piston.
+    pub piston_push_reaction: PushReaction,
 }
 
 #[derive(Debug)]
@@ -233,6 +269,8 @@ pub struct EntityType {
     pub fire_immune: bool,
     /// Whether this entity can be summoned via commands.
     pub summonable: bool,
+    /// Whether this entity type is allowed to exist in Peaceful difficulty.
+    pub allowed_in_peaceful: bool,
     /// Whether this entity can spawn far from players.
     pub can_spawn_far_from_player: bool,
     /// Whether this entity type can be serialized to disk.
@@ -242,6 +280,10 @@ pub struct EntityType {
     pub is_abstract_boat: bool,
     /// Whether vanilla class hierarchy makes this entity an `AbstractMinecart`.
     pub is_abstract_minecart: bool,
+    /// Whether vanilla class hierarchy makes this entity a `Projectile`.
+    pub is_projectile: bool,
+    /// Whether vanilla class hierarchy makes this entity an `AbstractArrow`.
+    pub is_abstract_arrow: bool,
 
     /// Behavioral flags for collision and interaction.
     pub flags: EntityFlags,
@@ -253,17 +295,10 @@ pub struct EntityType {
 
 pub type EntityTypeRef = &'static EntityType;
 
-impl PartialEq for EntityTypeRef {
-    #[expect(clippy::disallowed_methods)] // This IS the PartialEq impl; ptr::eq is correct here
-    fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(*self, *other)
-    }
-}
-
 pub struct EntityTypeRegistry {
     types_by_id: Vec<EntityTypeRef>,
     types_by_key: FxHashMap<Identifier, usize>,
-    tags: FxHashMap<Identifier, Vec<Identifier>>,
+    tags: RegistryTags,
     allows_registering: bool,
 }
 
@@ -280,7 +315,7 @@ impl EntityTypeRegistry {
         Self {
             types_by_id: Vec::new(),
             types_by_key: FxHashMap::default(),
-            tags: FxHashMap::default(),
+            tags: RegistryTags::default(),
             allows_registering: true,
         }
     }
@@ -375,6 +410,29 @@ mod tests {
     }
 
     #[test]
+    fn attachment_average_uses_unrotated_scaled_points() {
+        const PASSENGERS: [EntityAttachmentPoint; 2] = [
+            EntityAttachmentPoint::new(0.0, 0.5, 0.0),
+            EntityAttachmentPoint::new(1.0, 0.75, -0.5),
+        ];
+        const ZERO: [EntityAttachmentPoint; 1] = [EntityAttachmentPoint::new(0.0, 0.0, 0.0)];
+        let dimensions = EntityDimensions::new_with_attachments(
+            1.0,
+            2.0,
+            1.7,
+            EntityAttachments::new(&PASSENGERS, &ZERO, &ZERO, &ZERO),
+        )
+        .scale(2.0);
+
+        assert_vec3_close(
+            dimensions
+                .attachments
+                .get_average(EntityAttachment::Passenger, dimensions),
+            glam::DVec3::new(1.0, 1.25, -0.5),
+        );
+    }
+
+    #[test]
     fn vanilla_track_deltas_exclusions_match_entity_type_method() {
         assert!(!vanilla_entities::PLAYER.track_deltas);
         assert!(!vanilla_entities::BAT.track_deltas);
@@ -395,5 +453,15 @@ mod tests {
         assert!(vanilla_entities::CHEST_MINECART.is_abstract_minecart);
         assert!(vanilla_entities::TNT_MINECART.is_abstract_minecart);
         assert!(!vanilla_entities::ITEM.is_abstract_minecart);
+
+        assert!(vanilla_entities::ARROW.is_projectile);
+        assert!(vanilla_entities::WIND_CHARGE.is_projectile);
+        assert!(vanilla_entities::FISHING_BOBBER.is_projectile);
+        assert!(!vanilla_entities::ITEM.is_projectile);
+
+        assert!(vanilla_entities::ARROW.is_abstract_arrow);
+        assert!(vanilla_entities::SPECTRAL_ARROW.is_abstract_arrow);
+        assert!(vanilla_entities::TRIDENT.is_abstract_arrow);
+        assert!(!vanilla_entities::ENDER_PEARL.is_abstract_arrow);
     }
 }

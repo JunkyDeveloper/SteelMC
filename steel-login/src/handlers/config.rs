@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use steel_core::entity::next_entity_id;
 use steel_core::player::PlayerConnection;
-use steel_core::player::networking::JavaConnection;
+use steel_core::player::connection::JavaConnection;
 use steel_core::player::{ClientInformation, Player};
 use steel_protocol::packets::common::CCustomPayload;
 use steel_protocol::packets::common::{SClientInformation, SCustomPayload};
@@ -33,7 +33,10 @@ impl JavaTcpClient {
         // Convert packet to our ClientInformation struct and store it
         let info = ClientInformation {
             language: packet.language,
-            view_distance: packet.view_distance.clamp(2, 32) as u8,
+            view_distance: packet
+                .view_distance
+                .clamp(2, i32::from(self.server.config.view_distance).max(2))
+                as u8,
             chat_visibility: packet.chat_visibility,
             chat_colors: packet.chat_colors,
             model_customization: packet.model_customization,
@@ -121,7 +124,6 @@ impl JavaTcpClient {
                 Arc::downgrade(&self.server),
                 self.server.config.clone(),
                 entity_id,
-                player_weak,
                 client_info,
             )
         });

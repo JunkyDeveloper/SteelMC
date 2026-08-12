@@ -3,9 +3,11 @@ use std::sync::Arc;
 use glam::DVec3;
 use steel_macros::block_behavior;
 use steel_registry::blocks::{BlockRef, block_state_ext::BlockStateExt as _, shapes::VoxelShape};
-use steel_registry::game_rules::GameRuleValue;
 use steel_registry::sound_event::SoundEventRef;
-use steel_registry::{vanilla_entities, vanilla_game_rules};
+use steel_registry::vanilla_entity_type_tags::EntityTypeTag;
+use steel_registry::{
+    REGISTRY, TaggedRegistryExt, vanilla_entities, vanilla_game_rules, vanilla_items,
+};
 use steel_utils::{BlockLocalAabb, BlockPos, BlockStateId};
 
 use crate::{
@@ -13,7 +15,9 @@ use crate::{
         BlockBehavior, BlockCollisionContext, BlockPlaceContext, EntityFallDamage,
         EntityFallOnContext,
     },
+    entity::ai::path::PathComputationType,
     entity::{Entity, InsideBlockEffectCollector, InsideBlockEffectType},
+    inventory::equipment::EquipmentSlot,
     world::{LevelReader, World},
 };
 
@@ -42,6 +46,25 @@ impl PowderSnowBlock {
         Self { block }
     }
 
+    /// Returns vanilla `PowderSnowBlock.canEntityWalkOnPowderSnow`.
+    pub(crate) fn can_entity_walk_on_powder_snow<E: Entity + ?Sized>(entity: &E) -> bool {
+        if REGISTRY.entity_types.is_in_tag(
+            entity.entity_type(),
+            &EntityTypeTag::POWDER_SNOW_WALKABLE_MOBS,
+        ) {
+            return true;
+        }
+
+        let Some(living) = entity.as_living_entity() else {
+            return false;
+        };
+        let mut has_leather_boots = false;
+        living.with_equipment_slot(EquipmentSlot::Feet, &mut |item_stack| {
+            has_leather_boots = item_stack.is(&vanilla_items::LEATHER_BOOTS);
+        });
+        has_leather_boots
+    }
+
     #[must_use]
     fn fall_sound(context: EntityFallOnContext<'_>) -> Option<SoundEventRef> {
         if context.fall_distance < MIN_FALL_DISTANCE_FOR_SOUND || !context.entity.is_living_entity {
@@ -60,6 +83,14 @@ impl PowderSnowBlock {
 impl BlockBehavior for PowderSnowBlock {
     fn get_state_for_placement(&self, _context: &BlockPlaceContext<'_>) -> Option<BlockStateId> {
         Some(self.block.default_state())
+    }
+
+    fn is_pathfindable(
+        &self,
+        _state: BlockStateId,
+        _computation_type: PathComputationType,
+    ) -> bool {
+        true
     }
 
     fn fall_on(
@@ -91,7 +122,7 @@ impl BlockBehavior for PowderSnowBlock {
             pos,
             BlockCollisionContext::entity(entity.position().y, entity.is_descending())
                 .with_fall_distance(entity.fall_distance())
-                .with_can_walk_on_powder_snow(entity.can_walk_on_powder_snow())
+                .with_can_walk_on_powder_snow(Self::can_entity_walk_on_powder_snow(entity))
                 .with_falling_block(entity.entity_type() == &vanilla_entities::FALLING_BLOCK),
         );
         if collision_shape.is_empty() {
@@ -146,8 +177,7 @@ impl BlockBehavior for PowderSnowBlock {
                     return;
                 }
 
-                let mob_griefing = world.get_game_rule(&vanilla_game_rules::MOB_GRIEFING)
-                    == GameRuleValue::Bool(true);
+                let mob_griefing = world.get_game_rule(&vanilla_game_rules::MOB_GRIEFING);
                 if (mob_griefing || entity.entity_type() == &vanilla_entities::PLAYER)
                     && entity.may_interact(world.as_ref(), pos)
                 {
@@ -167,25 +197,10 @@ mod tests {
     use steel_registry::{sound_events, test_support, vanilla_blocks, vanilla_entities};
 
     use crate::behavior::EntityFallOnFacts;
+    use crate::test_support::TestLevel;
 
-    struct EmptyLevel;
-
-    impl LevelReader for EmptyLevel {
-        fn get_block_state(&self, _pos: BlockPos) -> BlockStateId {
-            vanilla_blocks::AIR.default_state()
-        }
-
-        fn raw_brightness(&self, _pos: BlockPos, _sky_darkening: u8) -> u8 {
-            0
-        }
-
-        fn min_y(&self) -> i32 {
-            0
-        }
-
-        fn height(&self) -> i32 {
-            384
-        }
+    fn empty_level() -> TestLevel {
+        TestLevel::default().with_min_y(0)
     }
 
     fn powder_snow() -> PowderSnowBlock {
@@ -238,7 +253,7 @@ mod tests {
 
         let shape = behavior.get_collision_shape(
             state,
-            &EmptyLevel,
+            &empty_level(),
             pos,
             BlockCollisionContext::entity(64.0, false)
                 .with_fall_distance(NUM_BLOCKS_TO_FALL_INTO_BLOCK + 0.01),
@@ -255,11 +270,11 @@ mod tests {
         let pos = BlockPos::new(0, 64, 0);
         let context = BlockCollisionContext::entity(65.0, false).with_can_walk_on_powder_snow(true);
 
-        let shape = behavior.get_collision_shape(state, &EmptyLevel, pos, context);
+        let shape = behavior.get_collision_shape(state, &empty_level(), pos, context);
 
         assert_eq!(
             shape,
-            behavior.default_get_collision_shape(state, &EmptyLevel, pos, context)
+            behavior.default_get_collision_shape(state, &empty_level(), pos, context)
         );
     }
 
@@ -272,13 +287,13 @@ mod tests {
 
         let non_walkable_shape = behavior.get_collision_shape(
             state,
-            &EmptyLevel,
+            &empty_level(),
             pos,
             BlockCollisionContext::entity(65.0, false),
         );
         let descending_shape = behavior.get_collision_shape(
             state,
-            &EmptyLevel,
+            &empty_level(),
             pos,
             BlockCollisionContext::entity(65.0, true).with_can_walk_on_powder_snow(true),
         );
@@ -295,11 +310,11 @@ mod tests {
         let pos = BlockPos::new(0, 64, 0);
         let context = BlockCollisionContext::entity(64.0, true).with_falling_block(true);
 
-        let shape = behavior.get_collision_shape(state, &EmptyLevel, pos, context);
+        let shape = behavior.get_collision_shape(state, &empty_level(), pos, context);
 
         assert_eq!(
             shape,
-            behavior.default_get_collision_shape(state, &EmptyLevel, pos, context)
+            behavior.default_get_collision_shape(state, &empty_level(), pos, context)
         );
     }
 
@@ -312,7 +327,7 @@ mod tests {
 
         let shape = behavior.get_collision_shape(
             state,
-            &EmptyLevel,
+            &empty_level(),
             pos,
             BlockCollisionContext::pre_move(65.0, false)
                 .with_can_walk_on_powder_snow(true)

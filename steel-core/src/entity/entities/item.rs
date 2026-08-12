@@ -7,12 +7,14 @@
 use std::sync::{Arc, Weak};
 
 use glam::DVec3;
+use steel_macros::entity_behavior;
 use steel_registry::entity_type::EntityTypeRef;
 use steel_registry::item_stack::ItemStack;
-use steel_registry::vanilla_entities;
+use steel_registry::vanilla_damage_types;
 use steel_registry::vanilla_entity_data::ItemEntityData;
 use steel_utils::UuidExt;
 use steel_utils::locks::SyncMutex;
+use steel_utils::{Downcast as _, DowncastType, DowncastTypeKey};
 use uuid::Uuid;
 
 use crate::entity::damage::DamageSource;
@@ -26,7 +28,7 @@ use crate::player::Player;
 use crate::world::World;
 
 use simdnbt::ToNbtTag;
-use simdnbt::borrow::{BaseNbtCompound as BorrowedNbtCompound, NbtCompound as NbtCompoundView};
+use simdnbt::borrow::NbtCompound as BorrowedNbtCompoundView;
 use simdnbt::owned::{NbtCompound, NbtTag};
 use steel_protocol::packets::game::CTakeItemEntity;
 use steel_registry::blocks::block_state_ext::BlockStateExt;
@@ -94,9 +96,13 @@ impl ItemEntityState {
 /// - Applies friction when on ground (0.98)
 /// - Despawns after 5 minutes (6000 ticks)
 /// - Has pickup delay before players can collect it
+#[entity_behavior]
 pub struct ItemEntity {
     /// Common entity fields (id, uuid, position, etc.).
     base: EntityBase,
+
+    /// Vanilla entity type registered for this implementation.
+    entity_type: EntityTypeRef,
 
     /// Entity data containing the `ItemStack`.
     entity_data: SyncMutex<ItemEntityData>,
@@ -105,19 +111,44 @@ pub struct ItemEntity {
     item_state: SyncMutex<ItemEntityState>,
 }
 
+// SAFETY: This key is owned by Steel and uniquely identifies `ItemEntity`.
+unsafe impl DowncastType for ItemEntity {
+    const TYPE_KEY: DowncastTypeKey = DowncastTypeKey::new("steel:entity/item");
+}
+
 impl ItemEntity {
     /// Creates a new item entity with an empty item.
     ///
     /// Use `set_item()` to set the actual item after creation, or use `with_item()`.
     #[must_use]
-    pub fn new(id: i32, position: DVec3, world: Weak<World>) -> Self {
-        Self::with_item_and_velocity(id, position, ItemStack::empty(), DVec3::ZERO, world)
+    pub fn new(entity_type: EntityTypeRef, id: i32, position: DVec3, world: Weak<World>) -> Self {
+        Self::with_item_and_velocity(
+            entity_type,
+            id,
+            position,
+            ItemStack::empty(),
+            DVec3::ZERO,
+            world,
+        )
     }
 
     /// Creates a new item entity with the specified item.
     #[must_use]
-    pub fn with_item(id: i32, position: DVec3, item: ItemStack, world: Weak<World>) -> Self {
-        Self::with_item_and_velocity(id, position, item, Self::default_spawn_velocity(), world)
+    pub fn with_item(
+        entity_type: EntityTypeRef,
+        id: i32,
+        position: DVec3,
+        item: ItemStack,
+        world: Weak<World>,
+    ) -> Self {
+        Self::with_item_and_velocity(
+            entity_type,
+            id,
+            position,
+            item,
+            Self::default_spawn_velocity(),
+            world,
+        )
     }
 
     /// Creates a new item entity with the specified item and initial velocity.
@@ -125,6 +156,7 @@ impl ItemEntity {
     /// Mirrors vanilla's `ItemEntity(Level, double, double, double, ItemStack, double, double, double)`.
     #[must_use]
     pub fn with_item_and_velocity(
+        entity_type: EntityTypeRef,
         id: i32,
         position: DVec3,
         item: ItemStack,
@@ -140,11 +172,12 @@ impl ItemEntity {
         Self {
             base: EntityBase::new_with_state(
                 id,
-                EntityBaseState::new(position, vanilla_entities::ITEM.dimensions)
+                EntityBaseState::new(position, entity_type.dimensions)
                     .with_velocity(velocity)
                     .with_rotation((yaw, 0.0)),
                 world,
             ),
+            entity_type,
             entity_data: SyncMutex::new(entity_data),
             item_state: SyncMutex::new(ItemEntityState::new()),
         }
@@ -163,9 +196,10 @@ impl ItemEntity {
     /// Used when loading entities from disk. Type-specific data (item, age, etc.)
     /// is restored via `load_additional()` after this constructor.
     #[must_use]
-    pub fn from_saved(load: EntityBaseLoad) -> Self {
+    pub fn from_saved(entity_type: EntityTypeRef, load: EntityBaseLoad) -> Self {
         Self {
-            base: EntityBase::from_load(load, vanilla_entities::ITEM.dimensions),
+            base: EntityBase::from_load(load, entity_type.dimensions),
+            entity_type,
             entity_data: SyncMutex::new(ItemEntityData::new()),
             item_state: SyncMutex::new(ItemEntityState::new()),
         }
@@ -193,9 +227,11 @@ impl ItemEntity {
         self.item_state.lock().age = age;
     }
 
-    /// Sets the entity to never despawn.
-    pub fn set_unlimited_lifetime(&self) {
-        self.item_state.lock().age = INFINITE_LIFETIME;
+    /// Makes this a one-tick visual pickup item that cannot be collected.
+    pub fn make_fake_item(&self) {
+        let mut state = self.item_state.lock();
+        state.pickup_delay = INFINITE_PICKUP_DELAY;
+        state.age = LIFETIME - 1;
     }
 
     /// Gets the pickup delay in ticks.
@@ -212,11 +248,6 @@ impl ItemEntity {
     /// Sets the pickup delay to zero (immediately pickupable).
     pub fn set_no_pickup_delay(&self) {
         self.item_state.lock().pickup_delay = 0;
-    }
-
-    /// Sets the item to never be pickupable.
-    pub fn set_never_pickup(&self) {
-        self.item_state.lock().pickup_delay = INFINITE_PICKUP_DELAY;
     }
 
     /// Sets a custom pickup delay in ticks.
@@ -362,7 +393,7 @@ impl ItemEntity {
     ///
     /// Mirrors vanilla's `ItemEntity.tryToMerge()`.
     /// The item with fewer items is merged into the one with more.
-    fn try_to_merge(&self, other: &ItemEntity) {
+    fn try_to_merge(&self, other: &Self) {
         let this_stack = self.get_item();
         let other_stack = other.get_item();
 
@@ -387,9 +418,9 @@ impl ItemEntity {
     ///
     /// Mirrors vanilla's `ItemEntity.merge(ItemEntity, ItemStack, ItemEntity, ItemStack)`.
     fn merge_stacks(
-        to_item: &ItemEntity,
+        to_item: &Self,
         to_stack: &ItemStack,
-        from_item: &ItemEntity,
+        from_item: &Self,
         from_stack: &ItemStack,
     ) {
         // Calculate how many items to transfer
@@ -406,21 +437,20 @@ impl ItemEntity {
         new_from_stack.shrink(transfer_count);
 
         // Update the destination item
-        to_item.set_item(new_to_stack);
-
-        // Pickup delay is the max of both (so merged items don't become instantly pickable)
-        // Age is the min of both (so merged items don't despawn prematurely).
         let (from_pickup_delay, from_age) = {
             let state = from_item.item_state.lock();
             (state.pickup_delay, state.age)
         };
+        to_item.set_item(new_to_stack);
+
+        // Pickup delay is the max of both so merged items do not become instantly pickable.
+        // Age is the min of both so merged items do not despawn prematurely.
         {
             let mut state = to_item.item_state.lock();
             state.pickup_delay = state.pickup_delay.max(from_pickup_delay);
             state.age = state.age.min(from_age);
         }
 
-        // Update or remove the source item
         if new_from_stack.is_empty() {
             from_item.set_removed(RemovalReason::Discarded);
         } else {
@@ -448,11 +478,10 @@ impl ItemEntity {
                 continue;
             }
 
-            // Try to get as ItemEntity
-            if let Some(other_item) = entity.as_item_entity() {
+            if let Some(other_item) = entity.downcast_ref::<Self>() {
                 // Double-check mergability (might have changed)
                 if other_item.is_mergeable() {
-                    self.try_to_merge(&other_item);
+                    self.try_to_merge(other_item);
 
                     // If we've been removed (merged into other), stop
                     if self.is_removed() {
@@ -495,7 +524,7 @@ impl Entity for ItemEntity {
     }
 
     fn entity_type(&self) -> EntityTypeRef {
-        &vanilla_entities::ITEM
+        self.entity_type
     }
 
     fn tick(&self) {
@@ -638,16 +667,30 @@ impl Entity for ItemEntity {
         self.on_pos(0.999_999)
     }
 
+    fn attackable(&self) -> bool {
+        false
+    }
+
     fn should_play_lava_hurt_sound(&self) -> bool {
         self.get_health() <= 0 || self.tick_count() % 10 == 0
     }
 
-    fn as_item_entity(self: Arc<Self>) -> Option<Arc<ItemEntity>> {
-        Some(self)
+    fn fire_immune(&self) -> bool {
+        !self
+            .get_item()
+            .can_be_hurt_by(&vanilla_damage_types::IN_FIRE)
+            || self.entity_type().fire_immune
     }
 
-    fn hurt(&self, _source: &DamageSource, amount: f32) -> bool {
-        // TODO: Check isInvulnerableToBase and canBeHurtBy (damage resistance component)
+    fn player_touch(self: Arc<Self>, player: &Arc<Player>) {
+        self.try_pickup(player);
+    }
+
+    fn hurt(&self, _world: &World, source: &DamageSource, amount: f32) -> bool {
+        // TODO: Check isInvulnerableToBase once the shared non-living entity hook is ported.
+        if !self.get_item().can_be_hurt_by(source.damage_type) {
+            return false;
+        }
         let new_health = {
             let mut state = self.item_state.lock();
             state.health = (state.health as f32 - amount) as i32;
@@ -681,10 +724,7 @@ impl Entity for ItemEntity {
         }
     }
 
-    fn load_additional(&self, nbt: &BorrowedNbtCompound<'_>) {
-        // Convert to view type to access accessor methods
-        let nbt: NbtCompoundView<'_, '_> = nbt.into();
-
+    fn load_additional(&self, nbt: BorrowedNbtCompoundView<'_, '_>) {
         // Match vanilla's ItemEntity.readAdditionalSaveData
         let mut state = self.item_state.lock();
         if let Some(health) = nbt.short("Health") {
@@ -728,23 +768,37 @@ mod tests {
 
     use glam::DVec3;
 
-    use steel_registry::{item_stack::ItemStack, vanilla_damage_types, vanilla_items};
+    use steel_registry::{
+        item_stack::ItemStack, test_support::init_test_registry, vanilla_damage_types,
+        vanilla_entities, vanilla_items,
+    };
 
     use crate::entity::{Entity, damage::DamageSource};
+    use crate::test_support::test_world;
     use crate::world::World;
 
     use super::ItemEntity;
 
     #[test]
     fn item_entities_do_not_obstruct_block_placement() {
-        let item = ItemEntity::new(1, DVec3::ZERO, Weak::<World>::new());
+        let item = ItemEntity::new(
+            &vanilla_entities::ITEM,
+            1,
+            DVec3::ZERO,
+            Weak::<World>::new(),
+        );
 
         assert!(!item.blocks_building());
     }
 
     #[test]
     fn item_lava_hurt_sound_uses_vanilla_interval() {
-        let item = ItemEntity::new(1, DVec3::ZERO, Weak::<World>::new());
+        let item = ItemEntity::new(
+            &vanilla_entities::ITEM,
+            1,
+            DVec3::ZERO,
+            Weak::<World>::new(),
+        );
 
         assert!(item.should_play_lava_hurt_sound());
         item.advance_tick_count();
@@ -763,9 +817,10 @@ mod tests {
     #[test]
     fn item_with_stack_uses_vanilla_default_velocity() {
         let item = ItemEntity::with_item(
+            &vanilla_entities::ITEM,
             1,
             DVec3::ZERO,
-            ItemStack::new(&vanilla_items::ITEMS.stone),
+            ItemStack::new(&vanilla_items::STONE),
             Weak::<World>::new(),
         );
         let velocity = item.velocity();
@@ -778,14 +833,96 @@ mod tests {
     }
 
     #[test]
+    fn fake_item_is_never_pickable_and_expires_on_its_next_tick() {
+        let item = ItemEntity::with_item(
+            &vanilla_entities::ITEM,
+            1,
+            DVec3::ZERO,
+            ItemStack::new(&vanilla_items::STONE),
+            Weak::<World>::new(),
+        );
+
+        item.make_fake_item();
+
+        assert_eq!(item.get_pickup_delay(), 32_767);
+        assert_eq!(item.get_age(), 5_999);
+    }
+
+    #[test]
+    fn item_merge_preserves_vanilla_stack_and_timing() {
+        init_test_registry();
+
+        let source = ItemEntity::with_item(
+            &vanilla_entities::ITEM,
+            1,
+            DVec3::ZERO,
+            ItemStack::with_count(&vanilla_items::STONE, 10),
+            Weak::<World>::new(),
+        );
+        source.set_pickup_delay(5);
+        source.set_age(20);
+
+        let target = ItemEntity::with_item(
+            &vanilla_entities::ITEM,
+            2,
+            DVec3::ZERO,
+            ItemStack::with_count(&vanilla_items::STONE, 20),
+            Weak::<World>::new(),
+        );
+        target.set_pickup_delay(1);
+        target.set_age(50);
+
+        source.try_to_merge(&target);
+
+        assert!(source.is_removed());
+        assert_eq!(target.get_item().count(), 30);
+        assert_eq!(target.get_pickup_delay(), 5);
+        assert_eq!(target.get_age(), 20);
+    }
+
+    #[test]
     fn item_damage_truncates_after_fractional_subtraction() {
-        let item = ItemEntity::new(1, DVec3::ZERO, Weak::<World>::new());
+        let item = ItemEntity::new(
+            &vanilla_entities::ITEM,
+            1,
+            DVec3::ZERO,
+            Weak::<World>::new(),
+        );
 
         assert!(item.hurt(
+            test_world(),
             &DamageSource::environment(&vanilla_damage_types::GENERIC),
             0.75
         ));
 
+        assert_eq!(item.get_health(), 4);
+    }
+
+    #[test]
+    fn damage_resistant_item_ignores_matching_damage() {
+        init_test_registry();
+
+        let item = ItemEntity::with_item(
+            &vanilla_entities::ITEM,
+            1,
+            DVec3::ZERO,
+            ItemStack::new(&vanilla_items::NETHERITE_INGOT),
+            Weak::<World>::new(),
+        );
+
+        assert!(item.fire_immune());
+        assert!(!item.hurt(
+            test_world(),
+            &DamageSource::environment(&vanilla_damage_types::IN_FIRE),
+            1.0
+        ));
+        assert_eq!(item.get_health(), 5);
+
+        assert!(item.hurt(
+            test_world(),
+            &DamageSource::environment(&vanilla_damage_types::GENERIC),
+            1.0
+        ));
         assert_eq!(item.get_health(), 4);
     }
 }

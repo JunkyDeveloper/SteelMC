@@ -35,11 +35,30 @@ pub use vanilla_serializers::register_vanilla_entity_data_serializers;
 
 use std::{io, str::FromStr};
 
-use steel_utils::{BlockStateId, Identifier, codec::VarInt, serial::WriteTo};
+use steel_utils::{
+    BlockStateId, Identifier,
+    codec::VarInt,
+    serial::{ReadFrom, WriteTo},
+};
 use text_components::TextComponent;
 use uuid::Uuid;
 
+use crate::RegistryReference;
+use crate::cat_sound_variant::CatSoundVariant;
+use crate::cat_variant::CatVariant;
+use crate::chicken_sound_variant::ChickenSoundVariant;
+use crate::chicken_variant::ChickenVariant;
+use crate::cow_sound_variant::CowSoundVariant;
+use crate::cow_variant::CowVariant;
+use crate::frog_variant::FrogVariant;
 use crate::item_stack::ItemStack;
+use crate::painting_variant::PaintingVariant;
+pub use crate::particle_type::{ColorParticleOption, ParticleData};
+use crate::pig_sound_variant::PigSoundVariant;
+use crate::pig_variant::PigVariant;
+use crate::wolf_sound_variant::WolfSoundVariant;
+use crate::wolf_variant::WolfVariant;
+use crate::zombie_nautilus_variant::ZombieNautilusVariant;
 
 // Re-export types used in generated code
 pub use crate::blocks::properties::Direction;
@@ -68,7 +87,7 @@ impl<T: Clone + PartialEq> SyncedValue<T> {
 
     /// Get a reference to the current value.
     #[inline]
-    pub fn get(&self) -> &T {
+    pub const fn get(&self) -> &T {
         &self.value
     }
 
@@ -83,13 +102,13 @@ impl<T: Clone + PartialEq> SyncedValue<T> {
 
     /// Returns true if the value has been modified since last sync.
     #[inline]
-    pub fn is_dirty(&self) -> bool {
+    pub const fn is_dirty(&self) -> bool {
         self.dirty
     }
 
     /// Clear the dirty flag after syncing.
     #[inline]
-    pub fn clear_dirty(&mut self) {
+    pub const fn clear_dirty(&mut self) {
         self.dirty = false;
     }
 
@@ -168,7 +187,8 @@ impl Rotations {
         z: 0.0,
     };
 
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
+    #[must_use]
+    pub const fn new(x: f32, y: f32, z: f32) -> Self {
         Self { x, y, z }
     }
 }
@@ -180,6 +200,19 @@ pub enum HumanoidArm {
     Left = 0,
     #[default]
     Right = 1,
+}
+
+impl ReadFrom for HumanoidArm {
+    fn read(data: &mut std::io::Cursor<&[u8]>) -> io::Result<Self> {
+        match VarInt::read(data)?.0 {
+            0 => Ok(Self::Left),
+            1 => Ok(Self::Right),
+            value => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("invalid humanoid arm id {value}"),
+            )),
+        }
+    }
 }
 
 /// Villager profession, type, and level data.
@@ -194,13 +227,30 @@ pub struct VillagerData {
 }
 
 impl VillagerData {
-    pub fn new(villager_type: i32, profession: i32, level: i32) -> Self {
+    #[must_use]
+    pub const fn new(villager_type: i32, profession: i32, level: i32) -> Self {
         Self {
             villager_type,
             profession,
             level,
         }
     }
+}
+
+/// Selects a villager profession by numeric registry order, preserving the fallback when empty.
+pub(crate) fn random_villager_profession_id(
+    random: &mut impl steel_utils::random::Random,
+    profession_count: usize,
+    fallback: i32,
+) -> i32 {
+    if profession_count == 0 {
+        return fallback;
+    }
+
+    let Ok(profession_count) = i32::try_from(profession_count) else {
+        panic!("villager profession registry exceeds Vanilla's signed integer range");
+    };
+    random.next_i32_bounded(profession_count)
 }
 
 /// A global position (dimension + block position).
@@ -211,7 +261,8 @@ pub struct GlobalPos {
 }
 
 impl GlobalPos {
-    pub fn new(dimension: Identifier, pos: BlockPos) -> Self {
+    #[must_use]
+    pub const fn new(dimension: Identifier, pos: BlockPos) -> Self {
         Self { dimension, pos }
     }
 }
@@ -231,7 +282,8 @@ impl Vector3f {
         z: 0.0,
     };
 
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
+    #[must_use]
+    pub const fn new(x: f32, y: f32, z: f32) -> Self {
         Self { x, y, z }
     }
 }
@@ -253,33 +305,9 @@ impl Quaternionf {
         w: 1.0,
     };
 
-    pub fn new(x: f32, y: f32, z: f32, w: f32) -> Self {
-        Self { x, y, z, w }
-    }
-}
-
-/// Particle-specific payload written after the particle type id.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ParticleOptions {
-    None,
-    Color { color: i32 },
-}
-
-/// Particle effect data.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParticleData {
-    /// Particle type registry ID.
-    pub particle_type: i32,
-    pub options: ParticleOptions,
-}
-
-impl ParticleData {
     #[must_use]
-    pub fn new(particle_type: i32, options: ParticleOptions) -> Self {
-        Self {
-            particle_type,
-            options,
-        }
+    pub const fn new(x: f32, y: f32, z: f32, w: f32) -> Self {
+        Self { x, y, z, w }
     }
 }
 
@@ -289,12 +317,7 @@ pub struct ParticleList {
     pub particles: Vec<ParticleData>,
 }
 
-/// Game profile for player heads and similar.
-// TODO: Implement proper profile with UUID, name, and properties
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct ResolvableProfile {
-    // TODO: Add fields when needed
-}
+pub use crate::resolvable_profile::ResolvableProfile;
 
 /// Sniffer entity state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -371,20 +394,20 @@ pub enum EntityData {
     // Optional numeric
     OptionalUnsignedInt(Option<u32>),
 
-    // Holder/registry reference variants (VarInt registry IDs)
-    CatVariant(i32),
-    CatSoundVariant(i32),
-    CowVariant(i32),
-    CowSoundVariant(i32),
-    WolfVariant(i32),
-    WolfSoundVariant(i32),
-    FrogVariant(i32),
-    PigVariant(i32),
-    PigSoundVariant(i32),
-    ChickenVariant(i32),
-    ChickenSoundVariant(i32),
-    ZombieNautilusVariant(i32),
-    PaintingVariant(i32),
+    // Holder/registry reference variants (encoded as VarInt registry IDs)
+    CatVariant(RegistryReference<CatVariant>),
+    CatSoundVariant(RegistryReference<CatSoundVariant>),
+    CowVariant(RegistryReference<CowVariant>),
+    CowSoundVariant(RegistryReference<CowSoundVariant>),
+    WolfVariant(RegistryReference<WolfVariant>),
+    WolfSoundVariant(RegistryReference<WolfSoundVariant>),
+    FrogVariant(RegistryReference<FrogVariant>),
+    PigVariant(RegistryReference<PigVariant>),
+    PigSoundVariant(RegistryReference<PigSoundVariant>),
+    ChickenVariant(RegistryReference<ChickenVariant>),
+    ChickenSoundVariant(RegistryReference<ChickenSoundVariant>),
+    ZombieNautilusVariant(RegistryReference<ZombieNautilusVariant>),
+    PaintingVariant(RegistryReference<PaintingVariant>),
 
     // Global position
     OptionalGlobalPos(Option<GlobalPos>),
@@ -407,7 +430,7 @@ pub enum EntityData {
 pub struct DataValue {
     /// The index of this data field (0-254, 255 is terminator).
     pub index: u8,
-    /// The serializer ID (from registration order in EntityDataSerializerRegistry).
+    /// The serializer ID (from registration order in `EntityDataSerializerRegistry`).
     pub serializer_id: i32,
     /// The actual value to write.
     pub value: EntityData,
@@ -448,15 +471,64 @@ pub fn write_data_values(values: &[DataValue], buf: &mut Vec<u8>) -> io::Result<
 
 #[cfg(test)]
 mod tests {
-    use steel_utils::{Identifier, codec::VarInt, serial::WriteTo};
+    use steel_utils::{
+        ArgbColor, Identifier,
+        codec::VarInt,
+        random::{Random as _, legacy_random::LegacyRandom},
+        serial::WriteTo,
+    };
 
-    use crate::vanilla_entity_data::{EggEntityData, ItemEntityData};
-    use crate::{Registry, RegistryExt};
+    use crate::vanilla_entity_data::{EggEntityData, ItemEntityData, ZombieVillagerEntityData};
+    use crate::{REGISTRY, RegistryExt, test_support::init_test_registry};
 
     use super::{
-        EntityData, EntityDataSerializerRegistry, ParticleData, ParticleOptions,
-        register_vanilla_entity_data_serializers,
+        ColorParticleOption, EntityData, EntityDataSerializerRegistry, ParticleData,
+        random_villager_profession_id, register_vanilla_entity_data_serializers,
     };
+
+    #[test]
+    fn zombie_villager_default_selects_profession_from_registry() {
+        init_test_registry();
+
+        let profession_count = REGISTRY.villager_professions.len();
+        let Ok(profession_bound) = i32::try_from(profession_count) else {
+            panic!("test villager profession registry must fit in i32");
+        };
+        let Some(nitwit_id) = REGISTRY
+            .villager_professions
+            .id_from_key(&Identifier::vanilla_static("nitwit"))
+        else {
+            panic!("nitwit villager profession must be registered");
+        };
+        let Some(plains_id) = REGISTRY
+            .villager_types
+            .id_from_key(&Identifier::vanilla_static("plains"))
+        else {
+            panic!("plains villager type must be registered");
+        };
+
+        let mut expected_random = LegacyRandom::from_seed(25);
+        let expected_profession = expected_random.next_i32_bounded(profession_bound);
+        assert_eq!(usize::try_from(expected_profession), Ok(nitwit_id));
+
+        let mut random = LegacyRandom::from_seed(25);
+        let data = ZombieVillagerEntityData::new(&mut random);
+        let villager_data = data.villager_data.get();
+
+        assert_eq!(usize::try_from(villager_data.villager_type), Ok(plains_id));
+        assert_eq!(villager_data.profession, expected_profession);
+        assert_eq!(villager_data.level, 1);
+        assert!(data.pack_all().is_empty());
+    }
+
+    #[test]
+    fn empty_villager_profession_registry_preserves_fallback_without_rng_draw() {
+        let mut random = LegacyRandom::from_seed(25);
+        let seed_before = random.get_seed();
+
+        assert_eq!(random_villager_profession_id(&mut random, 0, 7), 7);
+        assert_eq!(random.get_seed(), seed_before);
+    }
 
     #[test]
     fn projectile_item_stack_defaults_use_extracted_item() {
@@ -478,7 +550,8 @@ mod tests {
 
     #[test]
     fn entity_effect_particle_color_options_encode_payload() {
-        let registry = Registry::new_vanilla();
+        crate::test_support::init_test_registry();
+        let registry = &*crate::REGISTRY;
         let entity_effect = Identifier::vanilla_static("entity_effect");
         let Some(particle_type_id) = registry.particle_types.id_from_key(&entity_effect) else {
             panic!("entity_effect particle type must be registered");
@@ -497,8 +570,8 @@ mod tests {
         };
 
         let particle = ParticleData::new(
-            particle_type_id as i32,
-            ParticleOptions::Color { color: -1 },
+            &crate::vanilla_particle_types::ENTITY_EFFECT,
+            ColorParticleOption::new(ArgbColor::new(-1)),
         );
         let value = EntityData::Particle(particle);
         let mut encoded = Vec::new();

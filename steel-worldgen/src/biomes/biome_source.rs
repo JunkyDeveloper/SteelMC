@@ -232,6 +232,7 @@ impl ChunkBiomeSampler<'_> {
 ///
 /// Equivalent to vanilla's `MultiNoiseBiomeSource` with the overworld preset.
 pub struct OverworldBiomeSource {
+    seed: u64,
     climate_sampler: OverworldClimateSampler,
 }
 
@@ -240,8 +241,15 @@ impl OverworldBiomeSource {
     #[must_use]
     pub fn new(seed: u64) -> Self {
         Self {
+            seed,
             climate_sampler: OverworldClimateSampler::new(seed),
         }
+    }
+
+    /// World seed used to initialize this biome source.
+    #[must_use]
+    pub const fn seed(&self) -> u64 {
+        self.seed
     }
 
     /// Access the underlying climate sampler (for tests, spawn point search, etc.).
@@ -292,6 +300,7 @@ impl OverworldChunkBiomeSampler<'_> {
 ///
 /// Equivalent to vanilla's `MultiNoiseBiomeSource` with the nether preset.
 pub struct NetherBiomeSource {
+    seed: u64,
     climate_sampler: NetherClimateSampler,
 }
 
@@ -300,8 +309,15 @@ impl NetherBiomeSource {
     #[must_use]
     pub fn new(seed: u64) -> Self {
         Self {
+            seed,
             climate_sampler: NetherClimateSampler::new(seed),
         }
+    }
+
+    /// World seed used to initialize this biome source.
+    #[must_use]
+    pub const fn seed(&self) -> u64 {
+        self.seed
     }
 
     fn chunk_sampler(&self) -> ChunkBiomeSampler<'_> {
@@ -353,6 +369,7 @@ impl NetherChunkBiomeSampler<'_> {
 ///
 /// Matches vanilla's `TheEndBiomeSource`.
 pub struct EndBiomeSource {
+    seed: u64,
     end_islands: EndIslands,
 }
 
@@ -365,8 +382,15 @@ impl EndBiomeSource {
     #[must_use]
     pub fn new(seed: u64) -> Self {
         Self {
+            seed,
             end_islands: EndIslands::new(seed),
         }
+    }
+
+    /// World seed used to initialize this biome source.
+    #[must_use]
+    pub const fn seed(&self) -> u64 {
+        self.seed
     }
 
     fn chunk_sampler(&self) -> ChunkBiomeSampler<'_> {
@@ -395,12 +419,12 @@ impl EndChunkBiomeSampler<'_> {
         {
             return erosion;
         }
-        let weird_block_x = (chunk_x * 2 + 1) * 8;
-        let weird_block_z = (chunk_z * 2 + 1) * 8;
+        let weird_block_x = f64::from((chunk_x * 2 + 1) * 8);
+        let weird_block_z = f64::from((chunk_z * 2 + 1) * 8);
         let erosion = self
             .source
             .end_islands
-            .sample(weird_block_x, 0, weird_block_z);
+            .sample(weird_block_x, 0.0, weird_block_z);
         self.cached_erosion = Some((chunk_x, chunk_z, erosion));
         erosion
     }

@@ -9,7 +9,11 @@ use serde::Deserialize;
 struct BehaviorProperties {
     is_empty: bool,
     is_source: bool,
-    #[allow(dead_code)]
+    is_randomly_ticking: bool,
+    #[expect(
+        dead_code,
+        reason = "extracted fluid behavior field is retained for validation context"
+    )]
     is_flowing_fluid: bool,
     #[serde(default)]
     source_fluid: Option<String>,
@@ -18,10 +22,16 @@ struct BehaviorProperties {
     #[serde(default)]
     tick_delay: Option<u32>,
     #[serde(default)]
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "extracted fluid behavior field is retained for validation context"
+    )]
     drop_off: Option<u32>,
     #[serde(default)]
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "extracted fluid behavior field is retained for validation context"
+    )]
     slope_find_distance: Option<u32>,
     #[serde(default)]
     explosion_resistance: Option<f32>,
@@ -35,10 +45,16 @@ struct FluidJson {
     bucket_item: String,
     behavior_properties: BehaviorProperties,
     #[serde(default)]
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "extracted fluid properties are retained for validation context"
+    )]
     properties: Vec<String>,
     #[serde(default)]
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "extracted fluid default properties are retained for validation context"
+    )]
     default_properties: Vec<String>,
 }
 
@@ -63,6 +79,7 @@ pub(crate) fn build() -> TokenStream {
         let fluid_name = &fluid.name;
         let is_empty = fluid.behavior_properties.is_empty;
         let is_source = fluid.behavior_properties.is_source;
+        let is_randomly_ticking = fluid.behavior_properties.is_randomly_ticking;
         let block = &fluid.block;
         let bucket_item = &fluid.bucket_item;
         let tick_delay = fluid.behavior_properties.tick_delay.unwrap_or(0);
@@ -71,14 +88,16 @@ pub(crate) fn build() -> TokenStream {
             .explosion_resistance
             .unwrap_or(0.0);
 
-        let source_fluid = match &fluid.behavior_properties.source_fluid {
-            Some(s) => quote! { Some(Identifier::vanilla_static(#s)) },
-            None => quote! { None },
+        let source_fluid = if let Some(s) = &fluid.behavior_properties.source_fluid {
+            quote! { Some(Identifier::vanilla_static(#s)) }
+        } else {
+            quote! { None }
         };
 
-        let flowing_fluid = match &fluid.behavior_properties.flowing_fluid {
-            Some(s) => quote! { Some(Identifier::vanilla_static(#s)) },
-            None => quote! { None },
+        let flowing_fluid = if let Some(s) = &fluid.behavior_properties.flowing_fluid {
+            quote! { Some(Identifier::vanilla_static(#s)) }
+        } else {
+            quote! { None }
         };
 
         stream.extend(quote! {
@@ -86,6 +105,7 @@ pub(crate) fn build() -> TokenStream {
                 key: Identifier::vanilla_static(#fluid_name),
                 is_empty: #is_empty,
                 is_source: #is_source,
+                is_randomly_ticking: #is_randomly_ticking,
                 block: Identifier::vanilla_static(#block),
                 bucket_item: Identifier::vanilla_static(#bucket_item),
                 source_fluid: #source_fluid,

@@ -32,7 +32,7 @@ use glam::IVec3;
 use steel_utils::{BoundingBox, Identifier, PackedChunkPos};
 use wincode::{SchemaRead, SchemaWrite};
 
-use crate::chunk::chunk_access::ChunkStatus;
+use crate::chunk::status::ChunkStatus;
 
 /// Magic bytes for region file identification: "STLR" (Steel Region)
 pub const REGION_MAGIC: [u8; 4] = *b"STLR";
@@ -53,7 +53,12 @@ pub const REGION_MAGIC: [u8; 4] = *b"STLR";
 /// v15: Added procedural structure-piece payload persistence.
 /// v16: Added entity fall distance persistence.
 /// v17: Added entity `NoGravity` persistence.
-pub const FORMAT_VERSION: u16 = 17;
+/// v18: Added entity `Invulnerable` persistence.
+/// v19: Added shared entity save-data persistence.
+/// v20: Added chunk-owned light section persistence.
+/// v21: Matched vanilla scheduled-tick persistence by rebuilding sub-tick order on load.
+/// v22: Preserve Vanilla pending `DUMMY` block entities across chunk stages.
+pub const FORMAT_VERSION: u16 = 22;
 
 /// Number of chunks per region side (32×32 = 1024 chunks per region).
 pub const REGION_SIZE: usize = 32;
@@ -98,7 +103,7 @@ pub const MAX_CHUNK_SIZE: usize = 16 * 1024 * 1024;
 /// - offset: u32 - sector offset (0 = chunk doesn't exist)
 /// - size: u24 - compressed size in bytes
 /// - flags: u8 - status and flags
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ChunkEntry {
     /// Sector offset from start of file. 0 means chunk doesn't exist.
     /// Multiply by `SECTOR_SIZE` to get byte offset.
@@ -166,15 +171,19 @@ impl ChunkEntry {
 
     /// Deserializes from 8 bytes.
     #[must_use]
-    pub fn from_bytes(bytes: [u8; 8]) -> Self {
+    pub fn from_bytes(bytes: [u8; 8]) -> Option<Self> {
         let sector_offset = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
         let size_bytes = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], 0]);
-        let status = ChunkStatus::from_index(bytes[7] as usize).unwrap_or(ChunkStatus::Empty);
-        Self {
+        let status = if sector_offset == 0 {
+            ChunkStatus::Empty
+        } else {
+            ChunkStatus::from_index(bytes[7] as usize)?
+        };
+        Some(Self {
             sector_offset,
             size_bytes,
             status,
-        }
+        })
     }
 }
 
@@ -218,7 +227,7 @@ impl RegionHeader {
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(CHUNK_TABLE_SIZE);
-        for entry in self.entries.iter() {
+        for entry in &self.entries {
             bytes.extend_from_slice(&entry.to_bytes());
         }
         bytes
@@ -228,14 +237,16 @@ impl RegionHeader {
     ///
     /// # Panics
     /// Panics if bytes length is not exactly `CHUNK_TABLE_SIZE`.
-    #[must_use]
-    pub fn from_bytes(bytes: &[u8]) -> Self {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, usize> {
         assert_eq!(bytes.len(), CHUNK_TABLE_SIZE);
         let mut entries = Box::new([ChunkEntry::default(); CHUNKS_PER_REGION]);
-        for (i, chunk) in bytes.chunks_exact(8).enumerate() {
-            entries[i] = ChunkEntry::from_bytes(chunk.try_into().expect("chunk entry is 8 bytes"));
+        for (i, &chunk) in bytes.as_chunks::<8>().0.iter().enumerate() {
+            let Some(entry) = ChunkEntry::from_bytes(chunk) else {
+                return Err(i);
+            };
+            entries[i] = entry;
         }
-        Self { entries }
+        Ok(Self { entries })
     }
 
     /// Finds a contiguous range of free sectors for allocation.
@@ -279,17 +290,18 @@ impl Default for RegionHeader {
 
 /// A block state with its identifier and properties.
 #[derive(SchemaWrite, SchemaRead, Clone, PartialEq, Eq, Hash, Debug)]
-pub struct PersistentBlockState {
+pub struct PersistentBlockState<'a> {
     /// Block identifier (e.g., "`minecraft:oak_stairs`").
     pub name: Identifier,
     /// Block properties as key-value pairs (e.g., [("facing", "north")]).
-    pub properties: Vec<(&'static str, &'static str)>,
+    pub properties: Vec<(&'a str, &'a str)>,
 }
 
 /// A heightmap stored with a chunk.
 ///
 /// Height values are stored relative to `min_y` (same as the runtime `Heightmap`).
-/// Type discriminants: 0=WorldSurface, 1=MotionBlocking, 2=MotionBlockingNoLeaves, 3=OceanFloor.
+/// Type discriminants: 0=WorldSurface, 1=MotionBlocking, 2=MotionBlockingNoLeaves, 3=OceanFloor,
+/// 4=WorldSurfaceWg, 5=OceanFloorWg.
 #[derive(SchemaWrite, SchemaRead)]
 pub struct PersistentHeightmap {
     /// Heightmap type discriminant.
@@ -298,16 +310,61 @@ pub struct PersistentHeightmap {
     pub data: Vec<u16>,
 }
 
+/// Chunk-owned light data stored with a chunk.
+#[derive(SchemaWrite, SchemaRead, Default)]
+pub struct PersistentLightData {
+    /// Block-light sections indexed by light-section index.
+    pub block: Vec<PersistentLightSection>,
+    /// Sky-light sections indexed by light-section index.
+    pub sky: Vec<PersistentLightSection>,
+}
+
+/// One persisted chunk-owned light section.
+#[derive(SchemaWrite, SchemaRead)]
+pub enum PersistentLightSection {
+    /// Present zero-filled section without backing bytes.
+    Uninitialized {
+        /// Index in the chunk's padded light-section array.
+        section_index: u32,
+    },
+    /// Visible initialized light bytes.
+    Initialized {
+        /// Index in the chunk's padded light-section array.
+        section_index: u32,
+        /// Packed 4-bit light values.
+        data: Vec<u8>,
+    },
+    /// Initialized bytes hidden from vanilla packet conversion.
+    Internal {
+        /// Index in the chunk's padded light-section array.
+        section_index: u32,
+        /// Packed 4-bit light values.
+        data: Vec<u8>,
+    },
+}
+
+impl PersistentLightSection {
+    /// Returns the padded light-section index.
+    #[must_use]
+    pub const fn section_index(&self) -> u32 {
+        match self {
+            Self::Uninitialized { section_index }
+            | Self::Initialized { section_index, .. }
+            | Self::Internal { section_index, .. } => *section_index,
+        }
+    }
+}
+
 /// A persistent chunk containing sections and metadata.
 ///
 /// Each chunk stores its own block state and biome palettes, making it
 /// self-contained. Sections reference indices into these chunk-level palettes.
 #[derive(SchemaWrite, SchemaRead)]
-pub struct PersistentChunk {
+pub struct PersistentChunk<'a> {
     /// Unix timestamp of last modification.
     pub last_modified: u32,
     /// Block states used in this chunk. Sections reference indices into this.
-    pub block_states: Vec<PersistentBlockState>,
+    pub block_states: Vec<PersistentBlockState<'a>>,
     /// Biomes used in this chunk. Sections reference indices into this.
     pub biomes: Vec<Identifier>,
     /// Vertical sections (typically 24 for -64 to 319).
@@ -320,11 +377,13 @@ pub struct PersistentChunk {
     pub block_ticks: Vec<PersistentTick>,
     /// Scheduled fluid ticks pending in this chunk.
     pub fluid_ticks: Vec<PersistentTick>,
-    /// Final heightmaps for full chunks (empty for proto chunks).
+    /// Materialized heightmaps allowed by the chunk's persisted status.
     pub heightmaps: Vec<PersistentHeightmap>,
+    /// Chunk-owned light sections.
+    pub light: PersistentLightData,
     /// Proto chunk carving mask as Steel's packed bitset layout.
     pub carving_mask: Option<Vec<u64>>,
-    /// Proto chunk postprocessing offsets grouped by section index.
+    /// Pending postprocessing offsets grouped by section index.
     pub postprocessing: Vec<Vec<u16>>,
     /// Structure starts originating in this chunk.
     pub structure_starts: Vec<PersistentStructureStart>,
@@ -388,8 +447,8 @@ pub struct PersistentBlockEntity {
     pub y: i16,
     /// Relative Z position within chunk (0-15).
     pub z: u8,
-    /// Block entity type identifier (e.g., "minecraft:chest").
-    pub entity_type: Identifier,
+    /// Block entity type identifier, or `None` for Vanilla's pending `DUMMY` marker.
+    pub entity_type: Option<Identifier>,
     /// Serialized NBT data (simdnbt binary format).
     /// Contains the block entity's custom data from `save_additional`.
     pub nbt_data: Vec<u8>,
@@ -428,6 +487,24 @@ pub struct PersistentEntity {
     pub on_ground: bool,
     /// Shared vanilla `NoGravity` flag.
     pub no_gravity: bool,
+    /// Shared vanilla `Invulnerable` flag.
+    pub invulnerable: bool,
+    /// Synchronized vanilla `Air` value.
+    pub air_supply: i32,
+    /// Vanilla dimension-change portal cooldown.
+    pub portal_cooldown: i32,
+    /// Optional vanilla custom name stored as a root compound containing `CustomName`.
+    pub custom_name_nbt: Vec<u8>,
+    /// Synchronized vanilla custom-name visibility flag.
+    pub custom_name_visible: bool,
+    /// Synchronized vanilla silent flag.
+    pub silent: bool,
+    /// Server-owned vanilla glowing tag.
+    pub glowing: bool,
+    /// Vanilla scoreboard tags.
+    pub tags: Vec<String>,
+    /// Vanilla custom data compound.
+    pub custom_data_nbt: Vec<u8>,
     /// Type-specific NBT data from `save_additional`.
     pub nbt_data: Vec<u8>,
     /// Direct passengers nested under this entity.
@@ -437,7 +514,7 @@ pub struct PersistentEntity {
 /// A scheduled tick stored with a chunk.
 ///
 /// Stores the tick's position relative to the chunk, its remaining delay,
-/// priority, ordering, and the block/fluid identifier.
+/// priority, and the block/fluid identifier. Sub-tick order is rebuilt on load.
 #[derive(SchemaWrite, SchemaRead)]
 pub struct PersistentTick {
     /// Relative X position within chunk (0-15).
@@ -450,8 +527,6 @@ pub struct PersistentTick {
     pub delay: i32,
     /// Tick priority as `i8` (maps to `TickPriority` enum, -3 to 3).
     pub priority: i8,
-    /// Sub-tick ordering value for stable sort within same priority.
-    pub sub_tick_order: i64,
     /// Block or fluid identifier (e.g., "`minecraft:stone_button`").
     pub tick_type: Identifier,
 }
@@ -1128,6 +1203,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn persistent_block_state_properties_round_trip() {
+        let state = PersistentBlockState {
+            name: Identifier::vanilla_static("oak_stairs"),
+            properties: vec![("facing", "north"), ("waterlogged", "false")],
+        };
+
+        let encoded = wincode::serialize(&state).expect("block state should serialize");
+        let decoded: PersistentBlockState<'_> =
+            wincode::deserialize_exact(&encoded).expect("block state should deserialize");
+
+        assert_eq!(decoded, state);
+    }
+
+    #[test]
     fn test_region_pos_from_chunk() {
         // Positive chunks
         assert_eq!(RegionPos::from_chunk(0, 0), RegionPos::new(0, 0));
@@ -1161,7 +1250,7 @@ mod tests {
     fn test_chunk_entry_roundtrip() {
         let entry = ChunkEntry::new(42, 12345, ChunkStatus::Full);
         let bytes = entry.to_bytes();
-        let decoded = ChunkEntry::from_bytes(bytes);
+        let decoded = ChunkEntry::from_bytes(bytes).expect("serialized entry should decode");
         assert_eq!(entry.sector_offset, decoded.sector_offset);
         assert_eq!(entry.size_bytes, decoded.size_bytes);
         assert_eq!(entry.status, decoded.status);

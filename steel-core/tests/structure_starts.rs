@@ -12,14 +12,13 @@
 
 use std::fmt::Write as _;
 use std::mem::take;
-use std::sync::Weak;
+use std::sync::{Arc, Weak};
 
 use glam::IVec3;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use steel_core::chunk::chunk_access::ChunkAccess;
-use steel_core::chunk::proto_chunk::ProtoChunk;
+use steel_core::chunk::Chunk;
 use steel_core::chunk::section::{ChunkSection, Sections};
 use steel_registry::structure::LiquidSettingsData;
 use steel_registry::template_pool::{PoolElement, ProcessorList, Projection};
@@ -182,19 +181,18 @@ fn fmt_bb_expected(bb: &ExpectedBoundingBox) -> String {
     )
 }
 
-fn make_proto_chunk(pos: (i32, i32), section_count: usize, min_y: i32, height: i32) -> ChunkAccess {
+fn make_proto_chunk(pos: (i32, i32), section_count: usize, min_y: i32, height: i32) -> Chunk {
     let sections: Box<[ChunkSection]> = (0..section_count)
         .map(|_| ChunkSection::new_empty())
         .collect::<Vec<_>>()
         .into_boxed_slice();
-    let proto = ProtoChunk::new(
+    Chunk::new(
         Sections::from_owned(sections),
         ChunkPos::new(pos.0, pos.1),
         min_y,
         height,
         Weak::new(),
-    );
-    ChunkAccess::Proto(proto)
+    )
 }
 
 #[test]
@@ -259,18 +257,31 @@ fn structure_starts_inner() {
         let height = dim_type.height;
         let section_count = (height / 16) as usize;
 
+        let thread_pool = Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(1)
+                .thread_name(|index| format!("chunk-stage-hashes-{index}"))
+                .build()
+                .expect("failed to create chunk-stage hash test rayon pool"),
+        );
+
         let generator: ChunkGeneratorType = match dim_short {
             "overworld" => {
                 let source = BiomeSourceKind::overworld(seed);
-                ChunkGeneratorType::Overworld(OverworldGenerator::new(source, seed))
+                ChunkGeneratorType::Overworld(OverworldGenerator::new(
+                    None,
+                    source,
+                    seed,
+                    &thread_pool,
+                ))
             }
             "the_nether" => {
                 let source = BiomeSourceKind::nether(seed);
-                ChunkGeneratorType::Nether(NetherGenerator::new(source, seed))
+                ChunkGeneratorType::Nether(NetherGenerator::new(None, source, seed, &thread_pool))
             }
             "the_end" => {
                 let source = BiomeSourceKind::end(seed);
-                ChunkGeneratorType::End(EndGenerator::new(source, seed))
+                ChunkGeneratorType::End(EndGenerator::new(None, source, seed, &thread_pool))
             }
             _ => unreachable!(),
         };

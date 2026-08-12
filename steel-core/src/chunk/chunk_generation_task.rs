@@ -16,10 +16,10 @@ use steel_utils::{ChunkPos, locks::SyncMutex};
 use tokio_util::sync::CancellationToken;
 
 use crate::chunk::{
-    chunk_access::ChunkStatus,
     chunk_holder::ChunkHolder,
     chunk_map::ChunkMap,
     chunk_pyramid::{GENERATION_PYRAMID, LOADING_PYRAMID},
+    status::ChunkStatus,
 };
 
 /// A pre-filled 2D cache of elements, efficient for async creation.
@@ -66,13 +66,7 @@ impl<T> StaticCache2D<T> {
     /// Panics if coordinates are out of bounds.
     #[must_use]
     pub fn get(&self, x: i32, z: i32) -> &T {
-        let rel_x = x - self.min_x;
-        let rel_z = z - self.min_z;
-
-        if rel_x >= 0 && rel_x < self.size && rel_z >= 0 && rel_z < self.size {
-            let index = (rel_z * self.size + rel_x) as usize;
-            &self.cache[index]
-        } else {
+        let Some(value) = self.try_get(x, z) else {
             panic!(
                 "Out of bounds: ({x}, {z}) vs [({}, {}) to ({}, {})]",
                 self.min_x,
@@ -80,6 +74,21 @@ impl<T> StaticCache2D<T> {
                 self.min_x + self.size - 1,
                 self.min_z + self.size - 1
             );
+        };
+        value
+    }
+
+    /// Gets a reference to an element by world coordinates.
+    #[must_use]
+    pub fn try_get(&self, x: i32, z: i32) -> Option<&T> {
+        let rel_x = x - self.min_x;
+        let rel_z = z - self.min_z;
+
+        if rel_x >= 0 && rel_x < self.size && rel_z >= 0 && rel_z < self.size {
+            let index = (rel_z * self.size + rel_x) as usize;
+            self.cache.get(index)
+        } else {
+            None
         }
     }
 }
@@ -192,11 +201,11 @@ impl ChunkGenerationTask {
         needs_generation: bool,
         chunk_holder: &Arc<ChunkHolder>,
     ) -> bool {
-        let persisted_status = chunk_holder.persisted_status();
+        let published_status = chunk_holder.published_status();
 
         let generate;
-        if let Some(persisted_status) = persisted_status {
-            generate = status > persisted_status;
+        if let Some(published_status) = published_status {
+            generate = status > published_status;
         } else {
             generate = true;
         }
@@ -259,23 +268,21 @@ impl ChunkGenerationTask {
     /// # Panics
     /// Panics if the schedule is invalid.
     pub fn schedule_next_layer(&self) {
-        let status_to_schedule;
-        if self.scheduled_status.lock().is_none() {
-            status_to_schedule = ChunkStatus::Empty;
+        let status_to_schedule = if self.scheduled_status.lock().is_none() {
+            ChunkStatus::Empty
         } else if !self.needs_generation.load(Ordering::Relaxed)
             && *self.scheduled_status.lock() == Some(ChunkStatus::Empty)
             && !self.can_load_without_generation()
         {
             self.needs_generation.store(true, Ordering::Relaxed);
-            status_to_schedule = ChunkStatus::Empty;
+            ChunkStatus::Empty
         } else {
-            status_to_schedule = self
-                .scheduled_status
+            self.scheduled_status
                 .lock()
                 .expect("Scheduled status missing")
                 .next()
-                .expect("Next status missing");
-        }
+                .expect("Next status missing")
+        };
 
         self.schedule_layer(
             status_to_schedule,
@@ -289,7 +296,7 @@ impl ChunkGenerationTask {
             return true;
         }
         let center = self.cache.get(self.pos.0.x, self.pos.0.y);
-        let highest_generated_status = center.persisted_status();
+        let highest_generated_status = center.published_status();
 
         if let Some(highest_status) = highest_generated_status {
             if highest_status < self.target_status {
@@ -306,8 +313,8 @@ impl ChunkGenerationTask {
                     let distance = max((self.pos.0.x - x).abs(), (self.pos.0.y - z).abs()) as usize;
                     if let Some(required_status) = dependencies.get(distance) {
                         let neighbor = self.cache.get(x, z);
-                        let persisted = neighbor.persisted_status();
-                        if persisted < Some(required_status) {
+                        let published = neighbor.published_status();
+                        if published < Some(required_status) {
                             return false;
                         }
                     }

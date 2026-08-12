@@ -3,7 +3,7 @@
 use std::sync::Weak;
 
 use glam::DVec3;
-use steel_utils::ChunkPos;
+use steel_utils::{ChunkPos, WorldAabb};
 
 use super::EntityMoveError;
 use crate::world::World;
@@ -55,6 +55,9 @@ pub trait EntityLevelCallback: Send + Sync {
 
     /// Called after an entity position change has been committed.
     fn on_move_committed(&self, old_pos: DVec3, new_pos: DVec3) -> Result<(), EntityMoveError>;
+
+    /// Called after an entity's collision bounds change without a position change.
+    fn on_bounding_box_changed(&self, _bounding_box: WorldAabb) {}
 
     /// Called when entity is removed from the world.
     fn on_remove(&self, reason: RemovalReason);
@@ -162,18 +165,29 @@ impl EntityLevelCallback for PlayerEntityCallback {
                 self.entity_id,
                 update.old_chunk,
                 update.new_chunk,
-                |chunk| world.player_area_map.get_tracking_players(chunk),
+                |chunk| world.get_packet_tracking_players(chunk),
                 |player_id| world.players.get_by_entity_id(player_id),
             );
 
             if let Some(player) = world.players.get_by_entity_id(self.entity_id)
                 && let Some(view) = *player.last_tracking_view.lock()
             {
-                world.entity_tracker().update_player(&player, &view);
+                let sent_chunks = player.chunk_sender.lock().sent_chunks_snapshot();
+                world
+                    .entity_tracker()
+                    .update_player(&player, &view, |chunk| sent_chunks.contains(&chunk));
             }
         }
 
         Ok(())
+    }
+
+    fn on_bounding_box_changed(&self, _bounding_box: WorldAabb) {
+        if let Some(world) = self.world.upgrade() {
+            world
+                .entity_manager()
+                .commit_bounding_box_change(self.entity_id);
+        }
     }
 
     fn on_remove(&self, _reason: RemovalReason) {
@@ -234,9 +248,7 @@ impl EntityLevelCallback for EntityChunkCallback {
 
         if update.section_changed() {
             if update.became_inaccessible() {
-                world.entity_tracker().remove(self.entity_id, |player_id| {
-                    world.players.get_by_entity_id(player_id)
-                });
+                world.remove_entity_from_tracker(self.entity_id);
             } else if update.became_accessible() {
                 if let Some(entity) = world.entity_manager().get_by_id(self.entity_id) {
                     world.add_entity_to_tracker(&entity);
@@ -246,13 +258,21 @@ impl EntityLevelCallback for EntityChunkCallback {
                     self.entity_id,
                     update.old_chunk,
                     update.new_chunk,
-                    |chunk| world.player_area_map.get_tracking_players(chunk),
+                    |chunk| world.get_packet_tracking_players(chunk),
                     |player_id| world.players.get_by_entity_id(player_id),
                 );
             }
         }
 
         Ok(())
+    }
+
+    fn on_bounding_box_changed(&self, _bounding_box: WorldAabb) {
+        if let Some(world) = self.world.upgrade() {
+            world
+                .entity_manager()
+                .commit_bounding_box_change(self.entity_id);
+        }
     }
 
     fn on_remove(&self, reason: RemovalReason) {
@@ -267,8 +287,6 @@ impl EntityLevelCallback for EntityChunkCallback {
             world.mark_chunk_dirty(ChunkPos::from_entity_pos(entity.position()));
         }
 
-        world.entity_tracker().remove(self.entity_id, |player_id| {
-            world.players.get_by_entity_id(player_id)
-        });
+        world.remove_entity_from_tracker(self.entity_id);
     }
 }

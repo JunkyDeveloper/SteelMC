@@ -99,9 +99,9 @@ impl StairBlock {
 
 impl BlockBehavior for StairBlock {
     fn get_state_for_placement(&self, context: &BlockPlaceContext<'_>) -> Option<BlockStateId> {
-        let half = if context.clicked_face != Direction::Down
-            && (context.clicked_face == Direction::Up
-                || context.click_location.y - f64::from(context.relative_pos.y()) <= 0.5)
+        let half = if context.clicked_face() != Direction::Down
+            && (context.clicked_face() == Direction::Up
+                || context.click_location().y - f64::from(context.place_pos().y()) <= 0.5)
         {
             Half::Bottom
         } else {
@@ -111,7 +111,7 @@ impl BlockBehavior for StairBlock {
         let state = self
             .block
             .default_state()
-            .set_value(&Self::FACING, context.horizontal_direction)
+            .set_value(&Self::FACING, context.horizontal_direction())
             .set_value(&Self::HALF, half)
             .set_value(
                 &BlockStateProperties::WATERLOGGED,
@@ -120,7 +120,7 @@ impl BlockBehavior for StairBlock {
         Some(Self::update_stair_shape(
             state,
             context.world.as_ref(),
-            context.relative_pos,
+            context.place_pos(),
         ))
     }
 
@@ -183,10 +183,6 @@ impl BlockBehavior for WeatheringCopperStairBlock {
             .update_shape(state, world, pos, direction, neighbor_pos, neighbor_state)
     }
 
-    fn is_randomly_ticking(&self, _state: BlockStateId) -> bool {
-        self.weathering.is_randomly_ticking()
-    }
-
     fn random_tick(&self, state: BlockStateId, world: &Arc<World>, pos: BlockPos) {
         self.weathering.change_over_time(state, world, pos);
     }
@@ -194,55 +190,12 @@ impl BlockBehavior for WeatheringCopperStairBlock {
 
 #[cfg(test)]
 mod tests {
-    use steel_registry::fluid::FluidRef;
-    use steel_registry::{test_support::init_test_registry, vanilla_blocks, vanilla_fluids};
+    use steel_registry::{test_support::init_test_registry, vanilla_blocks};
     use steel_utils::BlockPos;
 
+    use crate::test_support::TestLevel;
+
     use super::*;
-
-    struct EmptyLevel;
-
-    impl LevelReader for EmptyLevel {
-        fn get_block_state(&self, _pos: BlockPos) -> BlockStateId {
-            vanilla_blocks::AIR.default_state()
-        }
-
-        fn raw_brightness(&self, _pos: BlockPos, _sky_darkening: u8) -> u8 {
-            0
-        }
-
-        fn min_y(&self) -> i32 {
-            -64
-        }
-
-        fn height(&self) -> i32 {
-            384
-        }
-    }
-
-    impl ScheduledTickAccess for EmptyLevel {
-        fn fluid_tick_delay(&self, _fluid: FluidRef) -> i32 {
-            5
-        }
-
-        fn schedule_block_tick_default(
-            &self,
-            _pos: BlockPos,
-            _block: BlockRef,
-            _delay: i32,
-        ) -> bool {
-            true
-        }
-
-        fn schedule_fluid_tick_default(
-            &self,
-            _pos: BlockPos,
-            fluid: FluidRef,
-            _delay: i32,
-        ) -> bool {
-            fluid == &vanilla_fluids::WATER
-        }
-    }
 
     #[test]
     fn stair_update_shape_recomputes_shape_from_neighbors() {
@@ -254,10 +207,11 @@ mod tests {
             .set_value(&StairBlock::HALF, Half::Top)
             .set_value(&StairBlock::SHAPE, StairsShape::OuterRight)
             .set_value(&BlockStateProperties::WATERLOGGED, true);
+        let level = TestLevel::default();
 
         let updated = behavior.update_shape(
             state,
-            &EmptyLevel,
+            &level,
             BlockPos::ZERO,
             Direction::West,
             Direction::West.relative(BlockPos::ZERO),

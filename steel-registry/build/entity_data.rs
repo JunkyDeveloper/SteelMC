@@ -5,7 +5,6 @@
 
 use std::fs;
 
-use crate::generator_functions::vanilla_variant_id;
 use heck::{ToShoutySnakeCase, ToSnakeCase, ToUpperCamelCase};
 use proc_macro2::{Ident, Literal, Span, TokenStream};
 use quote::quote;
@@ -15,7 +14,10 @@ use serde_json::Value;
 
 #[derive(Deserialize, Debug)]
 struct EntityEntry {
-    #[expect(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "extracted entity data keeps vanilla ids for validation context"
+    )]
     id: i32,
     name: String,
     synched_data: SynchedData,
@@ -23,18 +25,30 @@ struct EntityEntry {
 
 #[derive(Deserialize, Debug)]
 struct SynchedData {
-    #[expect(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "class metadata is kept from the extractor for future validation"
+    )]
     java_class: String,
-    #[expect(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "class metadata is kept from the extractor for future validation"
+    )]
     class_hierarchy: Vec<ClassEntry>,
     layers: Vec<SynchedDataLayer>,
 }
 
 #[derive(Deserialize, Debug)]
 struct ClassEntry {
-    #[expect(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "class metadata is kept from the extractor for future validation"
+    )]
     java_class: String,
-    #[expect(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "class metadata is kept from the extractor for future validation"
+    )]
     simple_name: String,
 }
 
@@ -54,6 +68,14 @@ struct SynchedDataEntry {
     serializer: String,
     #[serde(default)]
     default_value: Value,
+    #[serde(default)]
+    runtime_initializer: Option<RuntimeInitializer>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum RuntimeInitializer {
+    RandomVillagerProfession,
 }
 
 #[derive(Clone, Debug)]
@@ -64,52 +86,91 @@ struct LayerDefinition {
     fields: Vec<SynchedDataEntry>,
 }
 
-/// Maps a serializer name to (Rust type, EntityData variant, vanilla serializer ID).
-fn serializer_info(serializer: &str) -> Option<(&'static str, &'static str, i32)> {
+/// Maps a serializer name to its Rust type and `EntityData` variant.
+fn serializer_info(serializer: &str) -> Option<(&'static str, &'static str)> {
     Some(match serializer {
-        "byte" => ("i8", "Byte", 0),
-        "int" => ("i32", "Int", 1),
-        "long" => ("i64", "Long", 2),
-        "float" => ("f32", "Float", 3),
-        "string" => ("String", "String", 4),
-        "component" => ("Box<TextComponent>", "Component", 5),
-        "optional_component" => ("Option<Box<TextComponent>>", "OptionalComponent", 6),
-        "item_stack" => ("ItemStack", "ItemStack", 7),
-        "boolean" => ("bool", "Boolean", 8),
-        "rotations" => ("Rotations", "Rotations", 9),
-        "block_pos" => ("BlockPos", "BlockPos", 10),
-        "optional_block_pos" => ("Option<BlockPos>", "OptionalBlockPos", 11),
-        "direction" => ("Direction", "Direction", 12),
-        "optional_living_entity_reference" => ("Option<Uuid>", "OptionalLivingEntityRef", 13),
-        "block_state" => ("BlockStateId", "BlockState", 14),
-        "optional_block_state" => ("Option<BlockStateId>", "OptionalBlockState", 15),
-        "particle" => ("ParticleData", "Particle", 16),
-        "particles" => ("ParticleList", "Particles", 17),
-        "villager_data" => ("VillagerData", "VillagerData", 18),
-        "optional_unsigned_int" => ("Option<u32>", "OptionalUnsignedInt", 19),
-        "pose" => ("EntityPose", "Pose", 20),
-        "cat_variant" => ("i32", "CatVariant", 21),
-        "cat_sound_variant" => ("i32", "CatSoundVariant", 22),
-        "cow_variant" => ("i32", "CowVariant", 23),
-        "cow_sound_variant" => ("i32", "CowSoundVariant", 24),
-        "wolf_variant" => ("i32", "WolfVariant", 25),
-        "wolf_sound_variant" => ("i32", "WolfSoundVariant", 26),
-        "frog_variant" => ("i32", "FrogVariant", 27),
-        "pig_variant" => ("i32", "PigVariant", 28),
-        "pig_sound_variant" => ("i32", "PigSoundVariant", 29),
-        "chicken_variant" => ("i32", "ChickenVariant", 30),
-        "chicken_sound_variant" => ("i32", "ChickenSoundVariant", 31),
-        "zombie_nautilus_variant" => ("i32", "ZombieNautilusVariant", 32),
-        "optional_global_pos" => ("Option<GlobalPos>", "OptionalGlobalPos", 33),
-        "painting_variant" => ("i32", "PaintingVariant", 34),
-        "sniffer_state" => ("SnifferState", "SnifferState", 35),
-        "armadillo_state" => ("ArmadilloState", "ArmadilloState", 36),
-        "copper_golem_state" => ("i32", "CopperGolemState", 37),
-        "weathering_copper_state" => ("i32", "WeatheringCopperState", 38),
-        "vector3" => ("Vector3f", "Vector3", 39),
-        "quaternion" => ("Quaternionf", "Quaternion", 40),
-        "resolvable_profile" => ("ResolvableProfile", "ResolvableProfile", 41),
-        "humanoid_arm" => ("HumanoidArm", "HumanoidArm", 42),
+        "byte" => ("i8", "Byte"),
+        "int" => ("i32", "Int"),
+        "long" => ("i64", "Long"),
+        "float" => ("f32", "Float"),
+        "string" => ("String", "String"),
+        "component" => ("Box<TextComponent>", "Component"),
+        "optional_component" => ("Option<Box<TextComponent>>", "OptionalComponent"),
+        "item_stack" => ("ItemStack", "ItemStack"),
+        "boolean" => ("bool", "Boolean"),
+        "rotations" => ("Rotations", "Rotations"),
+        "block_pos" => ("BlockPos", "BlockPos"),
+        "optional_block_pos" => ("Option<BlockPos>", "OptionalBlockPos"),
+        "direction" => ("Direction", "Direction"),
+        "optional_living_entity_reference" => ("Option<Uuid>", "OptionalLivingEntityRef"),
+        "block_state" => ("BlockStateId", "BlockState"),
+        "optional_block_state" => ("Option<BlockStateId>", "OptionalBlockState"),
+        "particle" => ("ParticleData", "Particle"),
+        "particles" => ("ParticleList", "Particles"),
+        "villager_data" => ("VillagerData", "VillagerData"),
+        "optional_unsigned_int" => ("Option<u32>", "OptionalUnsignedInt"),
+        "pose" => ("EntityPose", "Pose"),
+        "cat_variant" => (
+            "RegistryReference<crate::cat_variant::CatVariant>",
+            "CatVariant",
+        ),
+        "cat_sound_variant" => (
+            "RegistryReference<crate::cat_sound_variant::CatSoundVariant>",
+            "CatSoundVariant",
+        ),
+        "cow_variant" => (
+            "RegistryReference<crate::cow_variant::CowVariant>",
+            "CowVariant",
+        ),
+        "cow_sound_variant" => (
+            "RegistryReference<crate::cow_sound_variant::CowSoundVariant>",
+            "CowSoundVariant",
+        ),
+        "wolf_variant" => (
+            "RegistryReference<crate::wolf_variant::WolfVariant>",
+            "WolfVariant",
+        ),
+        "wolf_sound_variant" => (
+            "RegistryReference<crate::wolf_sound_variant::WolfSoundVariant>",
+            "WolfSoundVariant",
+        ),
+        "frog_variant" => (
+            "RegistryReference<crate::frog_variant::FrogVariant>",
+            "FrogVariant",
+        ),
+        "pig_variant" => (
+            "RegistryReference<crate::pig_variant::PigVariant>",
+            "PigVariant",
+        ),
+        "pig_sound_variant" => (
+            "RegistryReference<crate::pig_sound_variant::PigSoundVariant>",
+            "PigSoundVariant",
+        ),
+        "chicken_variant" => (
+            "RegistryReference<crate::chicken_variant::ChickenVariant>",
+            "ChickenVariant",
+        ),
+        "chicken_sound_variant" => (
+            "RegistryReference<crate::chicken_sound_variant::ChickenSoundVariant>",
+            "ChickenSoundVariant",
+        ),
+        "zombie_nautilus_variant" => (
+            "RegistryReference<crate::zombie_nautilus_variant::ZombieNautilusVariant>",
+            "ZombieNautilusVariant",
+        ),
+        "optional_global_pos" => ("Option<GlobalPos>", "OptionalGlobalPos"),
+        "painting_variant" => (
+            "RegistryReference<crate::painting_variant::PaintingVariant>",
+            "PaintingVariant",
+        ),
+        "sniffer_state" => ("SnifferState", "SnifferState"),
+        "armadillo_state" => ("ArmadilloState", "ArmadilloState"),
+        "copper_golem_state" => ("i32", "CopperGolemState"),
+        "weathering_copper_state" => ("i32", "WeatheringCopperState"),
+        "vector3" => ("Vector3f", "Vector3"),
+        "quaternion" => ("Quaternionf", "Quaternion"),
+        "resolvable_profile" => ("ResolvableProfile", "ResolvableProfile"),
+        "humanoid_arm" => ("HumanoidArm", "HumanoidArm"),
         _ => return None,
     })
 }
@@ -128,11 +189,6 @@ fn minecraft_path<'a>(key: &'a str, serializer: &str) -> &'a str {
 fn key_ident(default: &Value, serializer: &str) -> Ident {
     let path = minecraft_path(required_string(default, serializer), serializer);
     Ident::new(&path.to_shouty_snake_case(), Span::call_site())
-}
-
-fn key_field_ident(default: &Value, serializer: &str) -> Ident {
-    let path = minecraft_path(required_string(default, serializer), serializer);
-    Ident::new(&path.to_snake_case(), Span::call_site())
 }
 
 fn required_i64(default: &Value, serializer: &str) -> i64 {
@@ -227,13 +283,9 @@ fn optional_none_expr(serializer: &str, default: &Value) -> TokenStream {
 }
 
 fn variant_registry_default_expr(module: &str, default: &Value, serializer: &str) -> TokenStream {
-    let default = required_string(default, serializer);
-    let subdir = module
-        .strip_prefix("vanilla_")
-        .and_then(|name| name.strip_suffix('s'))
-        .unwrap_or_else(|| panic!("Unsupported registry default module: {module}"));
-    let id = Literal::i32_unsuffixed(vanilla_variant_id(subdir, default) as i32);
-    quote! { #id }
+    let module_ident = Ident::new(module, Span::call_site());
+    let variant_ident = key_ident(default, serializer);
+    quote! { RegistryReference::new(&crate::#module_ident::#variant_ident) }
 }
 
 #[derive(Deserialize)]
@@ -284,7 +336,7 @@ fn item_stack_default_expr(default: &Value) -> TokenStream {
         "Expected item_stack default with only item/count, got {default}"
     );
 
-    let item_ident = key_field_ident(required_field(object, "item_stack", "item"), "item_stack");
+    let item_ident = key_ident(required_field(object, "item_stack", "item"), "item_stack");
     let count = required_object_i32(object, "item_stack", "count");
     assert!(
         count > 0,
@@ -292,7 +344,7 @@ fn item_stack_default_expr(default: &Value) -> TokenStream {
     );
 
     quote! {
-        ItemStack::with_count(&crate::vanilla_items::ITEMS.#item_ident, #count)
+        ItemStack::with_count(&*crate::vanilla_items::#item_ident, #count)
     }
 }
 
@@ -509,12 +561,7 @@ fn default_value_expr(serializer: &str, default: &Value) -> TokenStream {
                 "Expected particle default with type/options, got {default}"
             );
 
-            let particle_type = extracted_registry_field_default_expr(
-                "build_assets/particle_types.json",
-                obj,
-                serializer,
-                "type",
-            );
+            let particle_type = key_ident(required_field(obj, serializer, "type"), serializer);
             let options = required_object(required_field(obj, serializer, "options"), serializer);
             let kind = required_string(required_field(options, serializer, "kind"), serializer);
 
@@ -525,7 +572,7 @@ fn default_value_expr(serializer: &str, default: &Value) -> TokenStream {
                         1,
                         "Expected particle none options to contain only kind, got {default}"
                     );
-                    quote! { ParticleData::new(#particle_type, ParticleOptions::None) }
+                    quote! { ParticleData::simple(&crate::vanilla_particle_types::#particle_type) }
                 }
                 "color" => {
                     assert_eq!(
@@ -535,7 +582,10 @@ fn default_value_expr(serializer: &str, default: &Value) -> TokenStream {
                     );
                     let color = required_object_i32(options, serializer, "color");
                     quote! {
-                        ParticleData::new(#particle_type, ParticleOptions::Color { color: #color })
+                        ParticleData::new(
+                            &crate::vanilla_particle_types::#particle_type,
+                            ColorParticleOption::new(ArgbColor::new(#color)),
+                        )
                     }
                 }
                 _ => panic!("Unsupported particle options kind '{kind}' in {default}"),
@@ -553,9 +603,9 @@ fn default_value_expr(serializer: &str, default: &Value) -> TokenStream {
     }
 }
 
-/// Generate the EntityData conversion expression for packing.
+/// Generate the `EntityData` conversion expression for packing.
 fn entity_data_expr(serializer: &str, field_ident: &Ident) -> TokenStream {
-    let (_, variant, _) = serializer_info(serializer)
+    let (_, variant) = serializer_info(serializer)
         .unwrap_or_else(|| panic!("Unknown entity data serializer: {serializer}"));
     let variant_ident = Ident::new(variant, Span::call_site());
 
@@ -650,6 +700,41 @@ fn field_shape_matches(left: &SynchedDataEntry, right: &SynchedDataEntry) -> boo
         && left.accessor_field == right.accessor_field
         && left.serializer_id == right.serializer_id
         && left.serializer == right.serializer
+        && left.runtime_initializer == right.runtime_initializer
+}
+
+fn field_initial_value_expr(data: &SynchedDataEntry) -> TokenStream {
+    let default_expr = default_value_expr(&data.serializer, &data.default_value);
+    let Some(runtime_initializer) = data.runtime_initializer else {
+        return default_expr;
+    };
+
+    match runtime_initializer {
+        RuntimeInitializer::RandomVillagerProfession => {}
+    }
+    assert_eq!(
+        data.serializer, "villager_data",
+        "random_villager_profession requires villager_data, got {}",
+        data.serializer
+    );
+    assert_eq!(
+        data.name, "villager_data",
+        "random_villager_profession requires the villager_data field"
+    );
+    assert_eq!(
+        data.accessor_field, "DATA_VILLAGER_DATA",
+        "random_villager_profession requires DATA_VILLAGER_DATA"
+    );
+
+    quote! {{
+        let mut data = #default_expr;
+        data.profession = crate::entity_data::random_villager_profession_id(
+            random,
+            crate::REGISTRY.villager_professions.len(),
+            data.profession,
+        );
+        data
+    }}
 }
 
 fn parent_field_ident(simple_name: &str) -> Ident {
@@ -860,6 +945,34 @@ fn entity_has_living_entity_data(entity: &EntityEntry) -> bool {
         .any(|layer| !layer.fields.is_empty() && layer.simple_name == "LivingEntity")
 }
 
+fn validate_serializer_ids(layers: &[LayerDefinition]) {
+    let mut ids_by_serializer = FxHashMap::default();
+    let mut serializers_by_id = FxHashMap::default();
+
+    for layer in layers {
+        for field in &layer.fields {
+            if let Some(existing_id) =
+                ids_by_serializer.insert(&field.serializer, field.serializer_id)
+            {
+                assert_eq!(
+                    existing_id, field.serializer_id,
+                    "Entity data serializer '{}' uses both IDs {existing_id} and {} in extracted data",
+                    field.serializer, field.serializer_id
+                );
+            }
+            if let Some(existing_serializer) =
+                serializers_by_id.insert(field.serializer_id, &field.serializer)
+            {
+                assert_eq!(
+                    existing_serializer, &field.serializer,
+                    "Entity data serializer ID {} is used by both '{existing_serializer}' and '{}' in extracted data",
+                    field.serializer_id, field.serializer
+                );
+            }
+        }
+    }
+}
+
 pub(crate) fn build() -> TokenStream {
     println!("cargo:rerun-if-changed=build_assets/entities.json");
 
@@ -869,6 +982,7 @@ pub(crate) fn build() -> TokenStream {
     let entities: Vec<EntityEntry> = serde_json::from_str(&content)
         .unwrap_or_else(|e| panic!("Failed to parse entities.json: {e}"));
     let layers = collect_layers(&entities);
+    validate_serializer_ids(&layers);
     let layer_indices: FxHashMap<_, _> = layers
         .iter()
         .enumerate()
@@ -901,15 +1015,15 @@ pub(crate) fn build() -> TokenStream {
     stream.extend(quote! {
         use crate::entity_data::{
             ArmadilloState, BlockPos, DataValue, Direction, EntityData, EntityPose,
-            GlobalPos, HumanoidArm, ParticleData, ParticleList, ParticleOptions, Quaternionf,
+            ColorParticleOption, GlobalPos, HumanoidArm, ParticleData, ParticleList, Quaternionf,
             ResolvableProfile, Rotations, SnifferState, SyncedValue, Vector3f,
             VillagerData,
         };
         use crate::item_stack::ItemStack;
-        use steel_utils::BlockStateId;
+        use steel_utils::{ArgbColor, BlockStateId, random::Random};
         use text_components::TextComponent;
         use uuid::Uuid;
-        use crate::RegistryEntry;
+        use crate::{RegistryEntry, RegistryExt, RegistryReference};
 
         /// Common access to the vanilla synchronized entity data root layer.
         pub trait VanillaEntityData {
@@ -941,6 +1055,16 @@ pub(crate) fn build() -> TokenStream {
 
     for layer in &layers {
         let struct_ident = data_struct_ident(&layer.simple_name);
+        let has_runtime_initializer = layer
+            .fields
+            .iter()
+            .any(|field| field.runtime_initializer.is_some());
+        if has_runtime_initializer {
+            assert_eq!(
+                layer.simple_name, "ZombieVillager",
+                "runtime-initialized entity data is only supported for the ZombieVillager leaf"
+            );
+        }
         let new_overrides = layer_new_overrides
             .get(layer.java_class.as_str())
             .cloned()
@@ -982,30 +1106,19 @@ pub(crate) fn build() -> TokenStream {
         }
 
         for data in &layer.fields {
-            let (rust_type, _, expected_serializer_id) = serializer_info(&data.serializer)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Unknown serializer '{}' for entity data layer '{}' field '{}'",
-                        data.serializer, layer.simple_name, data.name
-                    )
-                });
-            assert_eq!(
-                data.serializer_id,
-                expected_serializer_id,
-                "Serializer '{}' for entity data layer '{}' field '{}' has id {}, expected {}",
-                data.serializer,
-                layer.simple_name,
-                data.name,
-                data.serializer_id,
-                expected_serializer_id
-            );
+            let (rust_type, _) = serializer_info(&data.serializer).unwrap_or_else(|| {
+                panic!(
+                    "Unknown serializer '{}' for entity data layer '{}' field '{}'",
+                    data.serializer, layer.simple_name, data.name
+                )
+            });
 
             let field_name = sanitize_field_name(&data.name);
             let field_ident = Ident::new(&field_name, Span::call_site());
             let rust_type_tokens: TokenStream = rust_type.parse().unwrap_or_else(|error| {
                 panic!("Failed to parse Rust type '{rust_type}' for entity data: {error}")
             });
-            let default_expr = default_value_expr(&data.serializer, &data.default_value);
+            let default_expr = field_initial_value_expr(data);
             let index = data.index;
             let serializer_id_lit = data.serializer_id;
             let entity_data_expr = entity_data_expr(&data.serializer, &field_ident);
@@ -1083,6 +1196,33 @@ pub(crate) fn build() -> TokenStream {
                 quote! {}
             };
 
+        let constructor = if has_runtime_initializer {
+            quote! {
+                /// Create new entity data with Vanilla's runtime-random defaults.
+                pub fn new(random: &mut impl Random) -> Self {
+                    #new_body
+                }
+            }
+        } else {
+            quote! {
+                /// Create new entity data with default values.
+                pub fn new() -> Self {
+                    #new_body
+                }
+            }
+        };
+        let default_impl = if has_runtime_initializer {
+            quote! {}
+        } else {
+            quote! {
+                impl Default for #struct_ident {
+                    fn default() -> Self {
+                        Self::new()
+                    }
+                }
+            }
+        };
+
         // Generate the struct
         stream.extend(quote! {
             /// Synchronized entity data declared by the vanilla `#struct_name` layer.
@@ -1092,10 +1232,7 @@ pub(crate) fn build() -> TokenStream {
             }
 
             impl #struct_ident {
-                /// Create new entity data with default values.
-                pub fn new() -> Self {
-                    #new_body
-                }
+                #constructor
 
                 #(#layer_accessors)*
 
@@ -1128,11 +1265,7 @@ pub(crate) fn build() -> TokenStream {
                 }
             }
 
-            impl Default for #struct_ident {
-                fn default() -> Self {
-                    Self::new()
-                }
-            }
+            #default_impl
 
             impl VanillaEntityData for #struct_ident {
                 fn base(&self) -> &BaseEntityData {
@@ -1179,6 +1312,13 @@ pub(crate) fn build() -> TokenStream {
 
         let concrete_ident = Ident::new(&concrete_struct_name, Span::call_site());
         let layer_ident = data_struct_ident(&last_layer.simple_name);
+        assert!(
+            !last_layer
+                .fields
+                .iter()
+                .any(|field| field.runtime_initializer.is_some()),
+            "runtime-initialized entity data must be generated as its concrete leaf"
+        );
         let root_field_ident = parent_field_ident(&last_layer.simple_name);
         let overrides = concrete_default_overrides(entity, &layer_indices, &layers);
         let layer_accessors = {

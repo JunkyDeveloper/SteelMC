@@ -2,8 +2,9 @@
 //!
 use core::iter;
 
-pub use steel_protocol::packets::game::AttributeModifierOperation;
+use simdnbt::owned::{NbtCompound, NbtList};
 use steel_protocol::packets::game::{AttributeModifierData, AttributeSnapshot};
+pub use steel_registry::attribute::AttributeModifierOperation;
 use steel_registry::attribute::AttributeRef;
 use steel_registry::entity_type::EntityTypeRef;
 use steel_registry::{REGISTRY, RegistryEntry, RegistryExt};
@@ -82,7 +83,7 @@ pub struct AttributeInstance {
 }
 
 impl AttributeInstance {
-    fn new(attribute: AttributeRef, base_value: f64) -> Self {
+    const fn new(attribute: AttributeRef, base_value: f64) -> Self {
         let cached = attribute.sanitize_value(base_value);
         Self {
             attribute,
@@ -134,6 +135,12 @@ impl AttributeInstance {
         self.persistent.push(persistent);
         self.recalculate();
         true
+    }
+
+    /// Returns whether a modifier with the given ID exists.
+    #[must_use]
+    pub fn has_modifier(&self, id: &Identifier) -> bool {
+        self.modifiers.iter().any(|modifier| modifier.id == *id)
     }
 
     /// Adds or replaces a modifier. Returns `true` if the value actually changed.
@@ -340,6 +347,45 @@ impl AttributeMap {
         self.instances.get(id)?.as_ref()
     }
 
+    /// Serializes the vanilla `LivingEntity.attributes` list.
+    #[must_use]
+    pub(crate) fn to_vanilla_nbt(&self) -> NbtList {
+        let attributes = self
+            .instances
+            .iter()
+            .flatten()
+            .map(|instance| {
+                let mut attribute = NbtCompound::new();
+                attribute.insert("id", instance.attribute().key.to_string());
+                attribute.insert("base", instance.base_value());
+
+                let modifiers = instance
+                    .permanent_modifiers()
+                    .map(|modifier| {
+                        let mut packed = NbtCompound::new();
+                        packed.insert("id", modifier.id.to_string());
+                        packed.insert("amount", modifier.amount);
+                        packed.insert("operation", modifier.operation.name());
+                        packed
+                    })
+                    .collect::<Vec<_>>();
+                if !modifiers.is_empty() {
+                    attribute.insert("modifiers", NbtList::Compound(modifiers));
+                }
+
+                attribute
+            })
+            .collect();
+        NbtList::Compound(attributes)
+    }
+
+    /// Returns whether an attribute has a modifier with the given ID.
+    #[must_use]
+    pub fn has_modifier(&self, attribute: AttributeRef, modifier_id: &Identifier) -> bool {
+        self.get_instance(attribute)
+            .is_some_and(|instance| instance.has_modifier(modifier_id))
+    }
+
     /// Sets the base value of an attribute
     pub fn set_base_value(&mut self, attribute: AttributeRef, value: f64) {
         let Some(id) = attribute.try_id() else { return };
@@ -485,6 +531,7 @@ impl AttributeMap {
 
 #[cfg(test)]
 mod tests {
+    use simdnbt::owned::NbtTag;
     use steel_registry::{REGISTRY, test_support, vanilla_attributes, vanilla_entities};
 
     use super::*;
@@ -509,6 +556,56 @@ mod tests {
                 .required_value(vanilla_attributes::GRAVITY)
                 .to_bits(),
             vanilla_attributes::GRAVITY.default_value.to_bits()
+        );
+    }
+
+    #[test]
+    fn vanilla_nbt_only_contains_permanent_modifiers() {
+        test_support::init_test_registry();
+        let mut attributes = AttributeMap::new_for_entity(&vanilla_entities::PLAYER);
+        attributes.add_modifier(
+            vanilla_attributes::MAX_HEALTH,
+            AttributeModifier {
+                id: Identifier::vanilla_static("transient_test"),
+                amount: 1.0,
+                operation: AttributeModifierOperation::AddValue,
+            },
+            false,
+        );
+        attributes.add_modifier(
+            vanilla_attributes::MAX_HEALTH,
+            AttributeModifier {
+                id: Identifier::vanilla_static("permanent_test"),
+                amount: 2.0,
+                operation: AttributeModifierOperation::AddMultipliedBase,
+            },
+            true,
+        );
+
+        let NbtList::Compound(packed_attributes) = attributes.to_vanilla_nbt() else {
+            panic!("attributes should serialize as a compound list");
+        };
+        let max_health = packed_attributes
+            .iter()
+            .find(|attribute| {
+                attribute.string("id").is_some_and(|id| {
+                    id.to_str().as_ref() == vanilla_attributes::MAX_HEALTH.key.to_string()
+                })
+            })
+            .unwrap_or_else(|| panic!("max health should be serialized"));
+        let Some(NbtTag::List(NbtList::Compound(modifiers))) = max_health.get("modifiers") else {
+            panic!("permanent modifier should be serialized");
+        };
+
+        assert_eq!(modifiers.len(), 1);
+        assert_eq!(
+            modifiers[0].string("id").map(ToString::to_string),
+            Some("minecraft:permanent_test".to_owned())
+        );
+        assert_eq!(modifiers[0].double("amount"), Some(2.0));
+        assert_eq!(
+            modifiers[0].string("operation").map(ToString::to_string),
+            Some("add_multiplied_base".to_owned())
         );
     }
 }

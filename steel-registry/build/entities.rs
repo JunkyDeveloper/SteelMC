@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "build script must fail immediately on invalid extracted entity data"
+)]
+
 use std::fs;
 
 use heck::ToShoutySnakeCase;
@@ -19,6 +24,7 @@ struct EntityTypeEntry {
     update_interval: i32,
     fire_immune: bool,
     summonable: bool,
+    allowed_in_peaceful: bool,
     can_spawn_far_from_player: bool,
     class_hierarchy: Vec<ClassHierarchyEntry>,
     #[serde(default = "default_can_serialize")]
@@ -49,7 +55,7 @@ struct AttachmentPointEntry {
     z: f64,
 }
 
-fn default_can_serialize() -> bool {
+const fn default_can_serialize() -> bool {
     true
 }
 
@@ -84,6 +90,23 @@ struct FlagsEntry {
     can_breathe_underwater: bool,
     #[serde(default)]
     can_be_seen_as_enemy: bool,
+    #[serde(default = "default_piston_push_reaction")]
+    piston_push_reaction: String,
+}
+
+fn default_piston_push_reaction() -> String {
+    "NORMAL".to_owned()
+}
+
+fn piston_push_reaction_variant(reaction: &str) -> TokenStream {
+    match reaction {
+        "NORMAL" => quote! { PushReaction::Normal },
+        "DESTROY" => quote! { PushReaction::Destroy },
+        "BLOCK" => quote! { PushReaction::Block },
+        "IGNORE" => quote! { PushReaction::Ignore },
+        "PUSH_ONLY" => quote! { PushReaction::PushOnly },
+        _ => panic!("Unknown piston push reaction: {reaction}"),
+    }
 }
 
 fn mob_category_variant(category: &str) -> TokenStream {
@@ -96,7 +119,7 @@ fn mob_category_variant(category: &str) -> TokenStream {
         "WATER_CREATURE" => quote! { MobCategory::WaterCreature },
         "WATER_AMBIENT" => quote! { MobCategory::WaterAmbient },
         "MISC" => quote! { MobCategory::Misc },
-        _ => panic!("Unknown mob category: {}", category),
+        _ => panic!("Unknown mob category: {category}"),
     }
 }
 
@@ -118,7 +141,7 @@ pub(crate) fn build() -> TokenStream {
     let entities_file = "build_assets/entities.json";
     let content = fs::read_to_string(entities_file).unwrap();
     let entity_types: Vec<EntityTypeEntry> = serde_json::from_str(&content)
-        .unwrap_or_else(|e| panic!("Failed to parse entities.json: {}", e));
+        .unwrap_or_else(|e| panic!("Failed to parse entities.json: {e}"));
 
     let mut stream = TokenStream::new();
 
@@ -127,6 +150,7 @@ pub(crate) fn build() -> TokenStream {
             EntityAttachmentPoint, EntityAttachments, EntityDimensions, EntityFlags, EntityType,
             EntityTypeRegistry, MobCategory,
         };
+        use crate::blocks::behavior::PushReaction;
         use steel_utils::Identifier;
     });
 
@@ -153,6 +177,7 @@ pub(crate) fn build() -> TokenStream {
         let mob_category = mob_category_variant(&entity_type.mob_category);
         let fire_immune = entity_type.fire_immune;
         let summonable = entity_type.summonable;
+        let allowed_in_peaceful = entity_type.allowed_in_peaceful;
         let can_spawn_far = entity_type.can_spawn_far_from_player;
         let can_serialize = entity_type.can_serialize;
         let is_abstract_boat = entity_type
@@ -163,6 +188,14 @@ pub(crate) fn build() -> TokenStream {
             .class_hierarchy
             .iter()
             .any(|class| class.simple_name == "AbstractMinecart");
+        let is_projectile = entity_type
+            .class_hierarchy
+            .iter()
+            .any(|class| class.simple_name == "Projectile");
+        let is_abstract_arrow = entity_type
+            .class_hierarchy
+            .iter()
+            .any(|class| class.simple_name == "AbstractArrow");
 
         // Flags (with defaults for entities that don't have them, like fishing_bobber)
         let flags = entity_type.flags.as_ref();
@@ -176,6 +209,10 @@ pub(crate) fn build() -> TokenStream {
         let is_sensitive_to_water = flags.is_some_and(|f| f.is_sensitive_to_water);
         let can_breathe_underwater = flags.is_some_and(|f| f.can_breathe_underwater);
         let can_be_seen_as_enemy = flags.is_some_and(|f| f.can_be_seen_as_enemy);
+        let piston_push_reaction = flags.map_or_else(
+            || quote! { PushReaction::Normal },
+            |flags| piston_push_reaction_variant(&flags.piston_push_reaction),
+        );
 
         let default_attributes_tokens = if let Some(attrs) = &entity_type.attributes {
             let mut sorted: Vec<(&String, &f64)> = attrs.iter().collect();
@@ -213,10 +250,13 @@ pub(crate) fn build() -> TokenStream {
                 mob_category: #mob_category,
                 fire_immune: #fire_immune,
                 summonable: #summonable,
+                allowed_in_peaceful: #allowed_in_peaceful,
                 can_spawn_far_from_player: #can_spawn_far,
                 can_serialize: #can_serialize,
                 is_abstract_boat: #is_abstract_boat,
                 is_abstract_minecart: #is_abstract_minecart,
+                is_projectile: #is_projectile,
+                is_abstract_arrow: #is_abstract_arrow,
                 flags: EntityFlags {
                     is_pushable: #is_pushable,
                     is_attackable: #is_attackable,
@@ -228,6 +268,7 @@ pub(crate) fn build() -> TokenStream {
                     is_sensitive_to_water: #is_sensitive_to_water,
                     can_breathe_underwater: #can_breathe_underwater,
                     can_be_seen_as_enemy: #can_be_seen_as_enemy,
+                    piston_push_reaction: #piston_push_reaction,
                 },
                 default_attributes: #default_attributes_tokens,
             };

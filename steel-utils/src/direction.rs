@@ -42,30 +42,6 @@ impl ReadFrom for Direction {
 }
 
 impl Direction {
-    /// Returns an array of all six cardinal directions (down, up, north, south, west, east).
-    #[must_use]
-    pub const fn all_dirs() -> [Direction; 6] {
-        [
-            Direction::Down,
-            Direction::Up,
-            Direction::North,
-            Direction::South,
-            Direction::West,
-            Direction::East,
-        ]
-    }
-
-    /// Returns vanilla `Direction.Plane.HORIZONTAL` order (north, east, south, west).
-    #[must_use]
-    pub const fn horizontal_dirs() -> [Direction; 4] {
-        [
-            Direction::North,
-            Direction::East,
-            Direction::South,
-            Direction::West,
-        ]
-    }
-
     /// Returns the block position offset for this direction.
     #[must_use]
     pub const fn offset(self) -> (i32, i32, i32) {
@@ -167,6 +143,16 @@ impl Direction {
         self.get_axis()
     }
 
+    /// Returns vanilla `Direction.get(AxisDirection.POSITIVE, axis)`.
+    #[must_use]
+    pub const fn positive_for_axis(axis: Axis) -> Direction {
+        match axis {
+            Axis::X => Direction::East,
+            Axis::Y => Direction::Up,
+            Axis::Z => Direction::South,
+        }
+    }
+
     /// Returns whether this direction is horizontal (not up or down).
     #[must_use]
     pub const fn is_horizontal(self) -> bool {
@@ -225,22 +211,22 @@ impl Direction {
         Direction::East,
     ];
 
-    /// The 4 horizontal directions.
+    /// Vanilla `Direction.Plane.HORIZONTAL` order.
     pub const HORIZONTAL: [Direction; 4] = [
         Direction::North,
+        Direction::East,
         Direction::South,
         Direction::West,
-        Direction::East,
     ];
 
-    /// The 6 directions.
+    /// Vanilla `Direction.values()` order.
     pub const ALL: [Direction; 6] = [
+        Direction::Down,
+        Direction::Up,
         Direction::North,
         Direction::South,
         Direction::West,
         Direction::East,
-        Direction::Down,
-        Direction::Up,
     ];
 
     /// Returns all directions ordered by how closely they match the player's look direction.
@@ -337,16 +323,31 @@ impl Direction {
             Direction::East => "east",
         }
     }
+
+    /// Returns a random direction
+    #[must_use]
+    pub fn random() -> Self {
+        match rand::random_range(0..6) {
+            1 => Self::Up,
+            2 => Self::North,
+            3 => Self::South,
+            4 => Self::West,
+            5 => Self::East,
+            _ => Self::Down,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::axis::Axis;
+
     use super::Direction;
 
     #[test]
     fn horizontal_dirs_matches_vanilla_plane_horizontal_order() {
         assert_eq!(
-            Direction::horizontal_dirs(),
+            Direction::HORIZONTAL,
             [
                 Direction::North,
                 Direction::East,
@@ -354,5 +355,27 @@ mod tests {
                 Direction::West,
             ]
         );
+    }
+
+    #[test]
+    fn all_dirs_matches_vanilla_values_order() {
+        assert_eq!(
+            Direction::ALL,
+            [
+                Direction::Down,
+                Direction::Up,
+                Direction::North,
+                Direction::South,
+                Direction::West,
+                Direction::East,
+            ]
+        );
+    }
+
+    #[test]
+    fn positive_for_axis_matches_vanilla_axis_direction_positive() {
+        assert_eq!(Direction::positive_for_axis(Axis::X), Direction::East);
+        assert_eq!(Direction::positive_for_axis(Axis::Y), Direction::Up);
+        assert_eq!(Direction::positive_for_axis(Axis::Z), Direction::South);
     }
 }

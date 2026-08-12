@@ -17,6 +17,9 @@ rustc-hash.workspace = true
 sha2.workspace = true
 tracing.workspace = true
 glam.workspace = true
+wincode.workspace = true
+
+rayon.workspace = true
 
 [build-dependencies]
 steel-utils.workspace = true
@@ -34,6 +37,11 @@ rustc-hash.workspace = true
 
 [dev-dependencies]
 steel-registry = { workspace = true, features = ["test-utils"] }
+criterion.workspace = true
+
+[[bench]]
+name = "jigsaw_assembly"
+harness = false
 
 [lints]
 workspace = true

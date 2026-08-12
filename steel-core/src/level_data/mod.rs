@@ -10,12 +10,54 @@ use std::{
 };
 
 use rustc_hash::FxHashMap;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use steel_registry::REGISTRY;
-use steel_registry::game_rules::{GameRuleValue, GameRuleValues};
+use steel_registry::game_rules::GameRuleValues;
 use steel_utils::types::Difficulty;
-use steel_utils::{BlockPos, Identifier};
+use steel_utils::{BlockPos, GlobalPos, Identifier};
 use tokio::fs;
+
+use crate::world::clock::WorldClockManager;
+
+/// Persistent world border data stored with Steel level data.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WorldBorderData {
+    /// Border center X coordinate.
+    pub center_x: f64,
+    /// Border center Z coordinate.
+    pub center_z: f64,
+    /// Damage dealt per block outside the safe zone.
+    pub damage_per_block: f64,
+    /// Distance outside the border before damage starts.
+    pub safe_zone: f64,
+    /// Client warning distance in blocks.
+    pub warning_blocks: i32,
+    /// Client warning time in seconds.
+    pub warning_time: i32,
+    /// Current border size.
+    pub size: f64,
+    /// Remaining lerp time in ticks.
+    pub lerp_time: i64,
+    /// Target size for a moving border.
+    pub lerp_target: f64,
+}
+
+impl Default for WorldBorderData {
+    fn default() -> Self {
+        Self {
+            center_x: 0.0,
+            center_z: 0.0,
+            damage_per_block: 0.2,
+            safe_zone: 5.0,
+            warning_blocks: 5,
+            warning_time: 300,
+            size: f64::from(5.999_997E7_f32),
+            lerp_time: 0,
+            lerp_target: 0.0,
+        }
+    }
+}
 
 /// Persistent level data that gets saved to disk.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,12 +66,19 @@ pub struct LevelData {
     pub seed: i64,
     /// Total game time in ticks.
     pub game_time: i64,
-    /// Time of day in ticks (0-24000).
-    pub day_time: i64,
+    /// Independently advancing world-clock instances for this loaded world.
+    #[serde(default)]
+    pub(crate) world_clocks: WorldClockManager,
     /// World spawn point.
     pub spawn: SpawnPoint,
+    /// Vanilla global respawn data for this domain, stored on the domain default world.
+    #[serde(default)]
+    pub respawn: Option<RespawnData>,
     /// Weather state.
     pub weather: WeatherState,
+    /// Persistent world border state.
+    #[serde(default)]
+    pub world_border: WorldBorderData,
     /// World difficulty.
     #[serde(default)]
     pub difficulty: Difficulty,
@@ -37,7 +86,7 @@ pub struct LevelData {
     #[serde(default)]
     pub difficulty_locked: bool,
     /// Game rules (stored as name -> value pairs for serialization).
-    pub game_rules: FxHashMap<String, GameRuleValue>,
+    pub game_rules: FxHashMap<String, serde_json::Value>,
     /// Runtime game rule values (not serialized, loaded from `game_rules`).
     #[serde(skip)]
     pub game_rules_values: GameRuleValues,
@@ -130,6 +179,100 @@ impl Default for SpawnPoint {
     }
 }
 
+/// Vanilla default respawn data.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RespawnData {
+    /// Dimension and block position of the default respawn.
+    pub global_pos: GlobalPos,
+    /// Spawn yaw, wrapped with vanilla `Mth.wrapDegrees`.
+    pub yaw: f32,
+    /// Spawn pitch, clamped to vanilla's player pitch range.
+    pub pitch: f32,
+}
+
+impl RespawnData {
+    /// Creates respawn data for the given global position.
+    #[must_use]
+    pub fn new(global_pos: GlobalPos, yaw: f32, pitch: f32) -> Self {
+        Self {
+            global_pos,
+            yaw: wrap_degrees(yaw),
+            pitch: pitch.clamp(-90.0, 90.0),
+        }
+    }
+
+    /// Creates respawn data for a dimension and block position.
+    #[must_use]
+    pub fn of(dimension: Identifier, pos: BlockPos, yaw: f32, pitch: f32) -> Self {
+        Self::new(GlobalPos::new(dimension, pos), yaw, pitch)
+    }
+
+    /// Returns the respawn dimension.
+    #[must_use]
+    pub const fn dimension(&self) -> &Identifier {
+        &self.global_pos.dimension
+    }
+
+    /// Returns the respawn block position.
+    #[must_use]
+    pub const fn pos(&self) -> BlockPos {
+        self.global_pos.pos
+    }
+}
+
+fn wrap_degrees(mut degrees: f32) -> f32 {
+    degrees %= 360.0;
+    if degrees >= 180.0 {
+        degrees -= 360.0;
+    }
+    if degrees < -180.0 {
+        degrees += 360.0;
+    }
+    degrees
+}
+
+#[derive(Serialize, Deserialize)]
+struct SerializedRespawnData {
+    dimension: Identifier,
+    x: i32,
+    y: i32,
+    z: i32,
+    yaw: f32,
+    pitch: f32,
+}
+
+impl Serialize for RespawnData {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        SerializedRespawnData {
+            dimension: self.global_pos.dimension.clone(),
+            x: self.global_pos.pos.x(),
+            y: self.global_pos.pos.y(),
+            z: self.global_pos.pos.z(),
+            yaw: self.yaw,
+            pitch: self.pitch,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for RespawnData {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let data = SerializedRespawnData::deserialize(deserializer)?;
+        Ok(Self::of(
+            data.dimension,
+            BlockPos::new(data.x, data.y, data.z),
+            data.yaw,
+            data.pitch,
+        ))
+    }
+}
+
 /// Weather state.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WeatherState {
@@ -164,9 +307,11 @@ impl LevelData {
         Self {
             seed,
             game_time: 0,
-            day_time: 0,
+            world_clocks: WorldClockManager::new(),
             spawn: SpawnPoint::default(),
+            respawn: None,
             weather: WeatherState::default(),
+            world_border: WorldBorderData::default(),
             difficulty,
             difficulty_locked: false,
             game_rules: FxHashMap::default(),
@@ -205,7 +350,7 @@ impl LevelData {
         self.game_rules_values = GameRuleValues::new(&REGISTRY.game_rules);
         for (name, value) in &self.game_rules {
             self.game_rules_values
-                .set_by_name(name, *value, &REGISTRY.game_rules);
+                .set_serialized_by_name(name, value, &REGISTRY.game_rules);
         }
     }
 
@@ -213,8 +358,15 @@ impl LevelData {
     pub fn save_game_rules(&mut self) {
         self.game_rules.clear();
         for (_, rule) in REGISTRY.game_rules.iter() {
-            let name = rule.key.path.to_string();
-            let value = self.game_rules_values.get(rule, &REGISTRY.game_rules);
+            let name = if rule.key().namespace == Identifier::VANILLA_NAMESPACE {
+                rule.key().path.to_string()
+            } else {
+                rule.key().to_string()
+            };
+            let value = rule.serialize_erased_value(
+                self.game_rules_values
+                    .get_erased(rule, &REGISTRY.game_rules),
+            );
             self.game_rules.insert(name, value);
         }
     }
@@ -230,6 +382,19 @@ impl LevelData {
         self.spawn.x = pos.x();
         self.spawn.y = pos.y();
         self.spawn.z = pos.z();
+    }
+
+    /// Returns saved respawn data, or the legacy local spawn as a compatibility default.
+    #[must_use]
+    pub fn respawn_data_or_local(&self, dimension: &Identifier) -> RespawnData {
+        self.respawn.clone().unwrap_or_else(|| {
+            RespawnData::of(dimension.clone(), self.spawn_pos(), self.spawn.angle, 0.0)
+        })
+    }
+
+    /// Sets the saved respawn data.
+    pub fn set_respawn_data(&mut self, respawn_data: RespawnData) {
+        self.respawn = Some(respawn_data);
     }
 }
 
@@ -268,8 +433,12 @@ impl LevelDataManager {
                 })?;
                 // Initialize runtime game rules from serialized values
                 loaded.load_game_rules();
+                let initialized_clocks = loaded
+                    .world_clocks
+                    .initialize_registered_clocks()
+                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
                 let adopted_generation = loaded.validate_generation_settings(generation)?;
-                (loaded, adopted_generation)
+                (loaded, adopted_generation || initialized_clocks)
             } else {
                 // Create new level data with the provided defaults.
                 let mut data = LevelData::new_with_seed_and_difficulty(seed, difficulty);
@@ -377,22 +546,16 @@ impl LevelDataManager {
         self.dirty = true;
     }
 
-    /// Calculates the day based on the game time
+    /// Returns this world's clock manager.
     #[must_use]
-    pub const fn day(&self) -> i64 {
-        self.data.game_time / 24000
+    pub(crate) const fn world_clocks(&self) -> &WorldClockManager {
+        &self.data.world_clocks
     }
 
-    /// Gets the day time.
-    #[must_use]
-    pub const fn day_time(&self) -> i64 {
-        self.data.day_time
-    }
-
-    /// Sets the day time.
-    pub const fn set_day_time(&mut self, time: i64) {
-        self.data.day_time = time;
+    /// Returns this world's mutable clock manager and marks level data dirty.
+    pub(crate) const fn world_clocks_mut(&mut self) -> &mut WorldClockManager {
         self.dirty = true;
+        &mut self.data.world_clocks
     }
 
     /// Gets the clear weather time
@@ -465,7 +628,11 @@ mod tests {
         process,
         time::{SystemTime, UNIX_EPOCH},
     };
-    use steel_registry::test_support::init_test_registry;
+    use steel_registry::{
+        test_support::init_test_registry,
+        vanilla_game_rules::{KEEP_INVENTORY, RANDOM_TICK_SPEED},
+        vanilla_world_clocks,
+    };
     use toml::map::Map;
 
     fn settings(dimension_type: &str, height: i32) -> WorldGenerationSettings {
@@ -550,5 +717,134 @@ mod tests {
         assert!(message.contains("world generation settings do not match"));
         assert!(message.contains("minecraft:the_nether"));
         assert!(message.contains("minecraft:overworld"));
+    }
+
+    #[test]
+    fn respawn_data_wraps_yaw_and_clamps_pitch() {
+        let respawn_data = RespawnData::of(
+            Identifier::vanilla_static("overworld"),
+            BlockPos::new(1, 2, 3),
+            181.0,
+            120.0,
+        );
+
+        assert_eq!(respawn_data.yaw.to_bits(), (-179.0_f32).to_bits());
+        assert_eq!(respawn_data.pitch.to_bits(), 90.0_f32.to_bits());
+    }
+
+    #[test]
+    fn respawn_data_round_trips_through_toml() {
+        let respawn_data = RespawnData::of(
+            Identifier::vanilla_static("the_nether"),
+            BlockPos::new(-4, 70, 8),
+            -181.0,
+            -120.0,
+        );
+
+        let serialized = toml::to_string(&respawn_data).expect("respawn data should serialize");
+        let deserialized: RespawnData =
+            toml::from_str(&serialized).expect("respawn data should deserialize");
+
+        assert_eq!(
+            deserialized.global_pos.dimension,
+            Identifier::vanilla_static("the_nether")
+        );
+        assert_eq!(deserialized.pos(), BlockPos::new(-4, 70, 8));
+        assert_eq!(deserialized.yaw.to_bits(), 179.0_f32.to_bits());
+        assert_eq!(deserialized.pitch.to_bits(), (-90.0_f32).to_bits());
+    }
+
+    #[test]
+    fn level_data_uses_legacy_spawn_as_respawn_default() {
+        init_test_registry();
+        let mut data = LevelData::new_with_seed(1);
+        data.set_spawn_pos(BlockPos::new(10, 65, -3));
+        data.spawn.angle = 270.0;
+
+        let respawn_data = data.respawn_data_or_local(&Identifier::vanilla_static("overworld"));
+
+        assert_eq!(
+            respawn_data.global_pos.dimension,
+            Identifier::vanilla_static("overworld")
+        );
+        assert_eq!(respawn_data.pos(), BlockPos::new(10, 65, -3));
+        assert_eq!(respawn_data.yaw.to_bits(), (-90.0_f32).to_bits());
+        assert_eq!(respawn_data.pitch.to_bits(), 0.0_f32.to_bits());
+    }
+
+    #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "the exactly representable configured clock rate must round-trip unchanged"
+    )]
+    fn level_data_round_trips_world_clock_state() {
+        init_test_registry();
+        let mut data = LevelData::new_with_seed(1);
+        assert_eq!(
+            data.world_clocks
+                .set_total_ticks(&vanilla_world_clocks::OVERWORLD, 98_765),
+            Some(())
+        );
+        assert_eq!(
+            data.world_clocks
+                .set_rate(&vanilla_world_clocks::OVERWORLD, 3.5),
+            Some(())
+        );
+
+        let serialized = toml::to_string(&data).expect("level data should serialize");
+        let mut restored: LevelData =
+            toml::from_str(&serialized).expect("level data should deserialize");
+        assert_eq!(
+            restored.world_clocks.initialize_registered_clocks(),
+            Ok(false)
+        );
+        assert_eq!(
+            restored
+                .world_clocks
+                .total_ticks(&vanilla_world_clocks::OVERWORLD),
+            Some(98_765)
+        );
+        let Some(update) = restored
+            .world_clocks
+            .network_update(&vanilla_world_clocks::OVERWORLD, true)
+        else {
+            panic!("overworld clock update should exist");
+        };
+        assert_eq!(update.3, 3.5);
+    }
+
+    #[test]
+    fn level_data_round_trips_typed_game_rules_with_untagged_toml_values() {
+        init_test_registry();
+        let mut data = LevelData::new_with_seed(1);
+        assert!(
+            data.game_rules_values
+                .set(&KEEP_INVENTORY, true, &REGISTRY.game_rules,)
+        );
+        assert!(
+            data.game_rules_values
+                .set(&RANDOM_TICK_SPEED, 9, &REGISTRY.game_rules,)
+        );
+        data.save_game_rules();
+
+        let serialized = toml::to_string(&data).expect("level data should serialize");
+        assert!(serialized.contains("keep_inventory = true"));
+        assert!(serialized.contains("random_tick_speed = 9"));
+
+        let mut restored: LevelData =
+            toml::from_str(&serialized).expect("level data should deserialize");
+        restored.load_game_rules();
+
+        assert!(
+            restored
+                .game_rules_values
+                .get(&KEEP_INVENTORY, &REGISTRY.game_rules)
+        );
+        assert_eq!(
+            restored
+                .game_rules_values
+                .get(&RANDOM_TICK_SPEED, &REGISTRY.game_rules),
+            9
+        );
     }
 }

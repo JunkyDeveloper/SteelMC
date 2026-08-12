@@ -14,8 +14,12 @@ use futures::FutureExt;
 use steel::config::{self, LogConfig};
 use steel::logger::CommandLogger;
 use steel::{SERVER, SteelServer, logger::LoggerLayer};
+use steel_core::player::player_data::PersistentPlayerData;
+use steel_core::player::player_data_storage::GlobalPlayerData;
+use steel_core::player::player_inventory::MenuRemovalStatus;
 use steel_core::server::Server;
 use steel_utils::text::DisplayResolutor;
+use steel_utils::threading::worker_threads_for_available;
 use text_components::fmt::set_display_resolutor;
 use tokio::runtime::{Builder, Runtime};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -110,9 +114,26 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-/// Main entry point for the Steel Minecraft server.
-///
-///
+// Windows defaults to a 1 MB main thread stack, which overflows in debug
+// builds due to deeply nested generated density functions.
+fn main() {
+    #[cfg(all(windows, debug_assertions))]
+    {
+        thread::Builder::new()
+            .name("steel-main".to_owned())
+            .stack_size(8 * 1024 * 1024)
+            .spawn(steel_main)
+            .expect("failed to spawn steel-main bootstrap thread")
+            .join()
+            .expect("steel-main thread panicked");
+    }
+
+    #[cfg(not(all(windows, debug_assertions)))]
+    {
+        steel_main();
+    }
+}
+
 /// Why 2 runtimes?
 ///
 /// The chunk runtime is very task heavy as it sometimes spawns thousands of tasks at once. It is also very await heavy in the part where it awaits its current layer.
@@ -124,36 +145,9 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
     clippy::unwrap_used,
     reason = "runtime build failures are fatal and unrecoverable at startup"
 )]
-fn main() {
+fn steel_main() {
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
-
-    let half_cpus = (thread::available_parallelism().map_or(4, NonZero::get) / 2).max(2);
-
-    let chunk_runtime = Arc::new(
-        Builder::new_multi_thread()
-            .worker_threads(half_cpus)
-            .thread_name("chunk-worker")
-            .enable_all()
-            .build()
-            .unwrap(),
-    );
-
-    let main_runtime = Builder::new_multi_thread()
-        .worker_threads(half_cpus)
-        .thread_name("main-worker")
-        .enable_all()
-        .build()
-        .unwrap();
-
-    main_runtime.block_on(main_async(chunk_runtime.clone()));
-
-    drop(main_runtime);
-    drop(chunk_runtime);
-}
-
-async fn main_async(chunk_runtime: Arc<Runtime>) {
-    let cancel_token = CancellationToken::new();
 
     // Load config once at startup
     let steel_config = match config::load_or_create(Path::new("config/config.toml")) {
@@ -163,6 +157,43 @@ async fn main_async(chunk_runtime: Arc<Runtime>) {
             return;
         }
     };
+
+    let main_worker_threads = configured_worker_threads(steel_config.server.threads.main_runtime);
+    let chunk_worker_threads = configured_worker_threads(steel_config.server.threads.chunk_runtime);
+
+    let chunk_runtime = Arc::new(
+        Builder::new_multi_thread()
+            .worker_threads(chunk_worker_threads)
+            .thread_name("chunk-worker")
+            .enable_all()
+            .build()
+            .unwrap(),
+    );
+
+    let main_runtime = Builder::new_multi_thread()
+        .worker_threads(main_worker_threads)
+        .thread_name("main-worker")
+        .enable_all()
+        .build()
+        .unwrap();
+
+    main_runtime.block_on(main_async(chunk_runtime.clone(), steel_config));
+
+    drop(main_runtime);
+    drop(chunk_runtime);
+}
+
+fn configured_worker_threads(configured_threads: Option<usize>) -> usize {
+    worker_threads_for_available(configured_threads, available_worker_threads())
+}
+
+fn available_worker_threads() -> usize {
+    thread::available_parallelism().map_or(4, NonZero::get)
+}
+
+async fn main_async(chunk_runtime: Arc<Runtime>, steel_config: config::SteelConfig) {
+    let cancel_token = CancellationToken::new();
+
     let logger = match init_tracing(cancel_token.clone(), steel_config.log.clone()).await {
         Ok(logger) => logger,
         Err(error) => {
@@ -350,14 +381,45 @@ async fn run_server(
 }
 
 async fn shutdown_worlds(server: &Arc<Server>) {
+    if let Err(error) = server.flush_known_players().await {
+        log::error!("Failed to flush known player cache during shutdown: {error}");
+    }
+
+    let players = server.get_players();
+    for player in &players {
+        player.close_connection();
+        assert_eq!(
+            player.remove_all_menus(),
+            MenuRemovalStatus::Complete,
+            "shutdown menu removal must run after packet processing stops"
+        );
+    }
+
     for world in server.worlds.values() {
         world.chunk_map.stop_generation_refill_loop();
         world.chunk_map.task_tracker.close();
         world.chunk_map.task_tracker.wait().await;
     }
 
+    let mut players_to_save = Vec::new();
+    for player in players {
+        let domain = player.get_world().domain().to_owned();
+        let data = PersistentPlayerData::from_player(&player);
+        player.store_ender_pearls_with_player();
+        players_to_save.push((player, domain, data));
+    }
+
     // Save all dirty chunks before shutdown
     log::info!("Saving world data...");
+    let command_data = server.save_command_data().await;
+    match command_data.scoreboards {
+        Ok(saved) => log::info!("Saved {saved} domain scoreboards"),
+        Err(error) => log::error!("Failed to save domain scoreboards: {error}"),
+    }
+    match command_data.storage {
+        Ok(saved) => log::info!("Saved {saved} domain command storages"),
+        Err(error) => log::error!("Failed to save domain command storage: {error}"),
+    }
     let mut total_saved = 0;
     for world in server.worlds.values() {
         world.cleanup(&mut total_saved).await;
@@ -366,15 +428,33 @@ async fn shutdown_worlds(server: &Arc<Server>) {
 
     // Save all player data before shutdown
     log::info!("Saving player data...");
-    let mut players_to_save = Vec::new();
-    for world in server.worlds.values() {
-        world.players.iter_players(|_, player| {
-            players_to_save.push(player.clone());
-            true
-        });
+    let mut saved = 0;
+    for (player, domain, data) in players_to_save {
+        let uuid = player.gameprofile.id;
+        match server
+            .player_data_storage
+            .save_domain_data(&domain, uuid, &data)
+            .await
+        {
+            Ok(()) => {
+                saved += 1;
+            }
+            Err(e) => {
+                log::error!("Failed to save player {uuid} domain data during shutdown: {e}");
+            }
+        }
+        if let Err(e) = server
+            .player_data_storage
+            .save_global(
+                uuid,
+                &GlobalPlayerData {
+                    last_active_domain: domain,
+                },
+            )
+            .await
+        {
+            log::error!("Failed to save player {uuid} global data during shutdown: {e}");
+        }
     }
-    match server.player_data_storage.save_all(&players_to_save).await {
-        Ok(count) => log::info!("Saved {count} players"),
-        Err(e) => log::error!("Failed to save player data: {e}"),
-    }
+    log::info!("Saved {saved} players");
 }

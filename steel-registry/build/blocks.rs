@@ -1,5 +1,11 @@
-#![expect(unused)]
-// Todo! Remove this^
+#![expect(
+    unused,
+    reason = "block generator deserializes extracted fields ahead of full behavior generation"
+)]
+#![expect(
+    clippy::unwrap_used,
+    reason = "build script must fail immediately on invalid extracted block data"
+)]
 
 use core::panic;
 use std::{borrow::Cow, fs};
@@ -83,9 +89,68 @@ pub struct ShapeData {
     pub overwrites: Vec<ShapeOverwrite>,
 }
 
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub struct LightProperties {
+    pub light_emission: u8,
+    pub light_dampening: u8,
+    pub use_shape_for_light_occlusion: bool,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct LightPropertiesOverwrite {
+    pub offset: u16,
+    pub light_emission: u8,
+    pub light_dampening: u8,
+    pub use_shape_for_light_occlusion: bool,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct LightPropertiesData {
+    pub default: LightProperties,
+    pub overwrites: Vec<LightPropertiesOverwrite>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct BooleanOverwrite {
+    pub offset: u16,
+    pub value: bool,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct StateBooleanData {
+    pub default: bool,
+    pub overwrites: Vec<BooleanOverwrite>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct StateFluidValue {
+    pub fluid: String,
+    pub amount: u8,
+    pub falling: bool,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct StateFluidOverwriteData {
+    pub offset: u16,
+    pub fluid: String,
+    pub amount: u8,
+    pub falling: bool,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct StateFluidData {
+    pub default: StateFluidValue,
+    pub overwrites: Vec<StateFluidOverwriteData>,
+}
+
 #[derive(Deserialize, Clone, Debug)]
 pub struct Block {
-    #[expect(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "extracted block ids are retained for validation context"
+    )]
     pub id: u16,
     pub name: String,
     pub properties: Vec<String>,
@@ -98,6 +163,11 @@ pub struct Block {
     pub occlusion_shapes: ShapeData,
     pub interaction_shapes: ShapeData,
     pub visual_shapes: ShapeData,
+    pub light_properties: LightPropertiesData,
+    pub fluid_state: StateFluidData,
+    pub randomly_ticking: StateBooleanData,
+    pub suffocating: StateBooleanData,
+    pub redstone_conductor: StateBooleanData,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -112,7 +182,7 @@ pub struct BlockAssets {
     pub shapes: Vec<Shape>,
 }
 
-/// Converts a push reaction string to a TokenStream representing the enum variant
+/// Converts a push reaction string to a `TokenStream` representing the enum variant
 fn push_reaction_to_tokens(reaction: &str) -> TokenStream {
     match reaction {
         "NORMAL" => quote! { PushReaction::Normal },
@@ -120,11 +190,11 @@ fn push_reaction_to_tokens(reaction: &str) -> TokenStream {
         "BLOCK" => quote! { PushReaction::Block },
         "IGNORE" => quote! { PushReaction::Ignore },
         "PUSH_ONLY" => quote! { PushReaction::PushOnly },
-        _ => panic!("Unknown push reaction: {}", reaction),
+        _ => panic!("Unknown push reaction: {reaction}"),
     }
 }
 
-/// Converts an instrument string to a TokenStream representing the enum variant
+/// Converts an instrument string to a `TokenStream` representing the enum variant
 fn instrument_to_tokens(instrument: &str) -> TokenStream {
     match instrument.to_uppercase().as_str() {
         "HARP" => quote! { NoteBlockInstrument::Harp },
@@ -158,7 +228,7 @@ fn instrument_to_tokens(instrument: &str) -> TokenStream {
         }
         "PIGLIN" => quote! { NoteBlockInstrument::Piglin },
         "CUSTOM_HEAD" => quote! { NoteBlockInstrument::CustomHead },
-        _ => panic!("Unknown instrument: {}", instrument),
+        _ => panic!("Unknown instrument: {instrument}"),
     }
 }
 
@@ -167,7 +237,7 @@ fn offset_type_to_tokens(offset_type: &str) -> TokenStream {
         "NONE" => quote! { OffsetType::None },
         "XZ" => quote! { OffsetType::Xz },
         "XYZ" => quote! { OffsetType::Xyz },
-        _ => panic!("Unknown offset type: {}", offset_type),
+        _ => panic!("Unknown offset type: {offset_type}"),
     }
 }
 
@@ -333,8 +403,8 @@ fn generate_default_state(block: &Block) -> TokenStream {
     }
 }
 
-/// VoxelShape pool that deduplicates shape combinations.
-/// Maps block-local box index combinations to a ShapeId.
+/// `VoxelShape` pool that deduplicates shape combinations.
+/// Maps block-local box index combinations to a `ShapeId`.
 struct VoxelShapePool {
     // Maps sorted block-local box indices to ShapeId.
     shapes: FxHashMap<Vec<u16>, u16>,
@@ -401,6 +471,38 @@ impl ShapeFunctionPool {
     }
 }
 
+/// Represents a unique light property function signature.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct LightFunctionSignature {
+    default: LightProperties,
+    arms: Vec<(Vec<u16>, LightProperties)>,
+}
+
+/// Pool for deduplicating light property functions.
+struct LightFunctionPool {
+    functions: FxHashMap<LightFunctionSignature, u16>,
+    function_list: Vec<LightFunctionSignature>,
+}
+
+impl LightFunctionPool {
+    fn new() -> Self {
+        Self {
+            functions: FxHashMap::default(),
+            function_list: Vec::new(),
+        }
+    }
+
+    fn get_or_insert(&mut self, sig: LightFunctionSignature) -> u16 {
+        if let Some(&id) = self.functions.get(&sig) {
+            return id;
+        }
+        let id = self.function_list.len() as u16;
+        self.functions.insert(sig.clone(), id);
+        self.function_list.push(sig);
+        id
+    }
+}
+
 /// Generates a match arm for shape overwrites.
 /// Groups offsets with the same shape ID together.
 fn generate_shape_match(
@@ -423,7 +525,7 @@ fn generate_shape_match(
     let mut arms: Vec<(Vec<u16>, u16)> = shape_to_offsets
         .into_iter()
         .map(|(shapes, mut offsets)| {
-            offsets.sort();
+            offsets.sort_unstable();
             let shape_id = voxel_pool.get_or_insert(shapes);
             (offsets, shape_id)
         })
@@ -433,6 +535,48 @@ fn generate_shape_match(
     arms.sort_by_key(|(offsets, _)| offsets.first().copied().unwrap_or(0));
 
     (default_id, arms)
+}
+
+fn light_properties_to_tokens(properties: &LightProperties) -> TokenStream {
+    let light_emission = properties.light_emission;
+    let light_dampening = properties.light_dampening;
+    let use_shape_for_light_occlusion = properties.use_shape_for_light_occlusion;
+    quote! {
+        BlockLightProperties {
+            light_emission: #light_emission,
+            light_dampening: #light_dampening,
+            use_shape_for_light_occlusion: #use_shape_for_light_occlusion,
+        }
+    }
+}
+
+fn generate_light_match(light_data: &LightPropertiesData) -> LightFunctionSignature {
+    let mut properties_to_offsets: FxHashMap<LightProperties, Vec<u16>> = FxHashMap::default();
+    for overwrite in &light_data.overwrites {
+        properties_to_offsets
+            .entry(LightProperties {
+                light_emission: overwrite.light_emission,
+                light_dampening: overwrite.light_dampening,
+                use_shape_for_light_occlusion: overwrite.use_shape_for_light_occlusion,
+            })
+            .or_default()
+            .push(overwrite.offset);
+    }
+
+    let mut arms: Vec<(Vec<u16>, LightProperties)> = properties_to_offsets
+        .into_iter()
+        .map(|(properties, mut offsets)| {
+            offsets.sort_unstable();
+            (offsets, properties)
+        })
+        .collect();
+
+    arms.sort_by_key(|(offsets, _)| offsets.first().copied().unwrap_or(0));
+
+    LightFunctionSignature {
+        default: light_data.default.clone(),
+        arms,
+    }
 }
 
 pub(crate) fn build() -> TokenStream {
@@ -449,6 +593,9 @@ pub(crate) fn build() -> TokenStream {
     // Shape function pool for deduplication
     let mut shape_fn_pool = ShapeFunctionPool::new();
 
+    // Light property function pool for deduplication
+    let mut light_fn_pool = LightFunctionPool::new();
+
     // Collect per-block shape function IDs
     struct BlockShapeInfo {
         name: String,
@@ -458,6 +605,7 @@ pub(crate) fn build() -> TokenStream {
         occlusion_fn_id: u16,
         interaction_fn_id: u16,
         visual_fn_id: u16,
+        light_fn_id: u16,
         collision_uses_offset: bool,
         support_uses_offset: bool,
         outline_uses_offset: bool,
@@ -514,6 +662,8 @@ pub(crate) fn build() -> TokenStream {
         let occlusion_fn_id = shape_fn_pool.get_or_insert(occlusion_sig);
         let interaction_fn_id = shape_fn_pool.get_or_insert(interaction_sig);
         let visual_fn_id = shape_fn_pool.get_or_insert(visual_sig);
+        let light_fn_id =
+            light_fn_pool.get_or_insert(generate_light_match(&block.light_properties));
 
         block_shape_infos.push(BlockShapeInfo {
             name: block.name.clone(),
@@ -523,6 +673,7 @@ pub(crate) fn build() -> TokenStream {
             occlusion_fn_id,
             interaction_fn_id,
             visual_fn_id,
+            light_fn_id,
             collision_uses_offset: block.collision_shapes.uses_offset,
             support_uses_offset: block.support_shapes.uses_offset,
             outline_uses_offset: block.outline_shapes.uses_offset,
@@ -538,7 +689,7 @@ pub(crate) fn build() -> TokenStream {
         .iter()
         .enumerate()
         .map(|(i, shape)| {
-            let name = Ident::new(&format!("BOX_{}", i), Span::call_site());
+            let name = Ident::new(&format!("BOX_{i}"), Span::call_site());
             let min_x = shape.min[0];
             let min_y = shape.min[1];
             let min_z = shape.min[2];
@@ -558,7 +709,7 @@ pub(crate) fn build() -> TokenStream {
         .iter()
         .enumerate()
         .map(|(id, aabb_indices)| {
-            let name = Ident::new(&format!("VSHAPE_{}", id), Span::call_site());
+            let name = Ident::new(&format!("VSHAPE_{id}"), Span::call_site());
             if aabb_indices.is_empty() {
                 quote! {
                     const #name: VoxelShape = VoxelShape::EMPTY;
@@ -571,7 +722,7 @@ pub(crate) fn build() -> TokenStream {
                 let aabb_refs: Vec<TokenStream> = aabb_indices
                     .iter()
                     .map(|&idx| {
-                        let aabb_name = Ident::new(&format!("BOX_{}", idx), Span::call_site());
+                        let aabb_name = Ident::new(&format!("BOX_{idx}"), Span::call_site());
                         quote! { #aabb_name }
                     })
                     .collect();
@@ -586,7 +737,7 @@ pub(crate) fn build() -> TokenStream {
     let mut shape_fns = TokenStream::new();
 
     for (fn_id, sig) in shape_fn_pool.function_list.iter().enumerate() {
-        let fn_name = Ident::new(&format!("shape_fn_{}", fn_id), Span::call_site());
+        let fn_name = Ident::new(&format!("shape_fn_{fn_id}"), Span::call_site());
         let default_shape = Ident::new(&format!("VSHAPE_{}", sig.default_id), Span::call_site());
 
         if sig.arms.is_empty() {
@@ -601,7 +752,7 @@ pub(crate) fn build() -> TokenStream {
                 .arms
                 .iter()
                 .map(|(offsets, shape_id)| {
-                    let shape_name = Ident::new(&format!("VSHAPE_{}", shape_id), Span::call_site());
+                    let shape_name = Ident::new(&format!("VSHAPE_{shape_id}"), Span::call_site());
                     let patterns: Vec<TokenStream> = offsets
                         .iter()
                         .map(|&o| {
@@ -620,6 +771,50 @@ pub(crate) fn build() -> TokenStream {
                     match offset {
                         #(#arms)*
                         _ => #default_shape,
+                    }
+                }
+            });
+        }
+    }
+
+    // Generate deduplicated light property functions
+    let mut light_fns = TokenStream::new();
+
+    for (fn_id, sig) in light_fn_pool.function_list.iter().enumerate() {
+        let fn_name = Ident::new(&format!("light_fn_{fn_id}"), Span::call_site());
+        let default_properties = light_properties_to_tokens(&sig.default);
+
+        if sig.arms.is_empty() {
+            light_fns.extend(quote! {
+                #[inline]
+                const fn #fn_name(_offset: u16) -> BlockLightProperties {
+                    #default_properties
+                }
+            });
+        } else {
+            let arms: Vec<TokenStream> = sig
+                .arms
+                .iter()
+                .map(|(offsets, properties)| {
+                    let properties = light_properties_to_tokens(properties);
+                    let patterns: Vec<TokenStream> = offsets
+                        .iter()
+                        .map(|&o| {
+                            quote! { #o }
+                        })
+                        .collect();
+                    quote! {
+                        #(#patterns)|* => #properties,
+                    }
+                })
+                .collect();
+
+            light_fns.extend(quote! {
+                #[inline]
+                fn #fn_name(offset: u16) -> BlockLightProperties {
+                    match offset {
+                        #(#arms)*
+                        _ => #default_properties,
                     }
                 }
             });
@@ -649,6 +844,63 @@ pub(crate) fn build() -> TokenStream {
         // Generate default state if block has properties
         let default_state = generate_default_state(block);
 
+        let suffocating_default = block.suffocating.default;
+        let suffocating_overwrites = block
+            .suffocating
+            .overwrites
+            .iter()
+            .map(|overwrite| {
+                let offset = overwrite.offset;
+                let value = overwrite.value;
+                quote! { StateBooleanOverwrite::new(#offset, #value) }
+            })
+            .collect::<Vec<_>>();
+        let redstone_conductor_default = block.redstone_conductor.default;
+        let redstone_conductor_overwrites = block
+            .redstone_conductor
+            .overwrites
+            .iter()
+            .map(|overwrite| {
+                let offset = overwrite.offset;
+                let value = overwrite.value;
+                quote! { StateBooleanOverwrite::new(#offset, #value) }
+            })
+            .collect::<Vec<_>>();
+        let randomly_ticking_default = block.randomly_ticking.default;
+        let randomly_ticking_overwrites = block
+            .randomly_ticking
+            .overwrites
+            .iter()
+            .map(|overwrite| {
+                let offset = overwrite.offset;
+                let value = overwrite.value;
+                quote! { StateBooleanOverwrite::new(#offset, #value) }
+            })
+            .collect::<Vec<_>>();
+        let default_fluid = Ident::new(
+            &block.fluid_state.default.fluid.to_shouty_snake_case(),
+            Span::call_site(),
+        );
+        let default_fluid_amount = block.fluid_state.default.amount;
+        let default_fluid_falling = block.fluid_state.default.falling;
+        let fluid_overwrites = block
+            .fluid_state
+            .overwrites
+            .iter()
+            .map(|overwrite| {
+                let offset = overwrite.offset;
+                let fluid = Ident::new(&overwrite.fluid.to_shouty_snake_case(), Span::call_site());
+                let amount = overwrite.amount;
+                let falling = overwrite.falling;
+                quote! {
+                    StateFluidOverwrite::new(
+                        #offset,
+                        FluidState::new(&vanilla_fluids::#fluid, #amount, #falling),
+                    )
+                }
+            })
+            .collect::<Vec<_>>();
+
         // Shape function references (now using deduplicated function IDs)
         let collision_fn = Ident::new(
             &format!("shape_fn_{}", info.collision_fn_id),
@@ -674,6 +926,7 @@ pub(crate) fn build() -> TokenStream {
             &format!("shape_fn_{}", info.visual_fn_id),
             Span::call_site(),
         );
+        let light_fn = Ident::new(&format!("light_fn_{}", info.light_fn_id), Span::call_site());
         let shape_offsets = if info.collision_uses_offset
             || info.support_uses_offset
             || info.outline_uses_offset
@@ -708,6 +961,8 @@ pub(crate) fn build() -> TokenStream {
                 &[
                     #(#properties),*
                 ],
+            ).with_light_properties(
+                #light_fn,
             ).with_shapes(
                 #collision_fn,
                 #support_fn,
@@ -715,6 +970,30 @@ pub(crate) fn build() -> TokenStream {
                 #occlusion_fn,
                 #interaction_fn,
                 #visual_fn,
+            ).with_suffocating(
+                StateBooleanData::new(
+                    #suffocating_default,
+                    &[#(#suffocating_overwrites),*],
+                ),
+            ).with_redstone_conductor(
+                StateBooleanData::new(
+                    #redstone_conductor_default,
+                    &[#(#redstone_conductor_overwrites),*],
+                ),
+            ).with_fluid_state(
+                StateFluidData::new(
+                    FluidState::new(
+                        &vanilla_fluids::#default_fluid,
+                        #default_fluid_amount,
+                        #default_fluid_falling,
+                    ),
+                    &[#(#fluid_overwrites),*],
+                ),
+            ).with_randomly_ticking(
+                StateBooleanData::new(
+                    #randomly_ticking_default,
+                    &[#(#randomly_ticking_overwrites),*],
+                ),
             ) #shape_offsets #default_state;
         });
     }
@@ -734,10 +1013,13 @@ pub(crate) fn build() -> TokenStream {
             blocks::{
                 behavior::{BlockConfig, OffsetType, PushReaction},
                 shapes::ShapeOffsetFlags,
-                Block, offset, BlockRegistry,
+                Block, BlockLightProperties, BlockRegistry, StateBooleanData,
+                StateBooleanOverwrite, StateFluidData, StateFluidOverwrite, offset,
             },
             blocks::properties::{self, BlockStateProperties, NoteBlockInstrument},
             blocks::shapes::VoxelShape,
+            fluid::FluidState,
+            vanilla_fluids,
         };
         use steel_utils::{BlockLocalAabb, Identifier};
 
@@ -749,6 +1031,9 @@ pub(crate) fn build() -> TokenStream {
 
         // Deduplicated shape functions
         #shape_fns
+
+        // Deduplicated light property functions
+        #light_fns
 
         // Block constants
         #stream
