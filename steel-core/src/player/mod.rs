@@ -337,7 +337,7 @@ impl Player {
     /// This function was created to give flint access to change the game mode even if no server is running.
     #[cfg(feature = "flint")]
     pub fn flint_change_game_mode_state(&self, game_mode: GameType) -> bool {
-        self.game_modes.lock().change_current(game_mode)
+        self.change_game_mode_state(game_mode)
     }
 
     /// Creates a new player.

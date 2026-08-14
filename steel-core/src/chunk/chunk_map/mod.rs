@@ -498,7 +498,7 @@ impl ChunkMap {
 
     /// Returns whether the chunk is in block simulation range with confirmed r1 readiness.
     #[must_use]
-    pub(crate) fn is_block_ticking_full_chunk_simulated(&self, pos: ChunkPos) -> bool {
+    pub fn is_block_ticking_full_chunk_simulated(&self, pos: ChunkPos) -> bool {
         self.lookup_active_holder(pos).is_some_and(|holder| {
             is_block_ticking(holder.simulation_level())
                 && holder.ticking_readiness_snapshot().is_block_ticking()

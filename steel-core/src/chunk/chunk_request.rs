@@ -90,7 +90,8 @@ impl ChunkRequestHandle {
         Self::new_with_ticket(chunk_map, request, ticket)
     }
 
-    fn new_with_ticket(
+    /// Builds a handle with a caller-supplied [`ChunkTicket`] (e.g. a simulation ticket).
+    pub fn new_with_ticket(
         chunk_map: Arc<ChunkMap>,
         request: ChunkRequest,
         ticket: ChunkTicket,
