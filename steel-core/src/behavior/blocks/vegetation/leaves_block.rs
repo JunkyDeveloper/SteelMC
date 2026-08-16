@@ -23,9 +23,9 @@ use steel_utils::{BlockPos, BlockStateId, types::UpdateFlags};
 
 use super::MangrovePropaguleBlock;
 
-const DISTANCE: IntProperty = BlockStateProperties::DISTANCE;
-const PERSISTENT: BoolProperty = BlockStateProperties::PERSISTENT;
-const WATERLOGGED: BoolProperty = BlockStateProperties::WATERLOGGED;
+const DISTANCE: &IntProperty = &BlockStateProperties::DISTANCE;
+const PERSISTENT: &BoolProperty = &BlockStateProperties::PERSISTENT;
+const WATERLOGGED: &BoolProperty = &BlockStateProperties::WATERLOGGED;
 
 /// Shared behavior for vanilla leaves blocks.
 pub struct LeavesBlock {
@@ -39,7 +39,7 @@ impl LeavesBlock {
         Self { block }
     }
     fn decaying(state: BlockStateId) -> bool {
-        !state.get_value(&PERSISTENT) && state.get_value(&DISTANCE) == 7
+        !state.get_value(PERSISTENT) && state.get_value(DISTANCE) == DISTANCE.max
     }
 
     fn decayed_replacement(state: BlockStateId) -> BlockStateId {
@@ -51,7 +51,7 @@ impl LeavesBlock {
         level: &dyn LevelReader,
         pos: BlockPos,
     ) -> BlockStateId {
-        let mut new_distance = 7;
+        let mut new_distance = DISTANCE.max;
         for direction in Direction::ALL {
             let mut neighbor_pos = pos;
             neighbor_pos = neighbor_pos.relative(direction);
@@ -62,10 +62,10 @@ impl LeavesBlock {
                 break;
             }
         }
-        state.set_value(&DISTANCE, new_distance)
+        state.set_value(DISTANCE, new_distance)
     }
     fn get_distance_at(state: BlockStateId) -> u8 {
-        Self::get_optional_distance_at(state).unwrap_or(7)
+        Self::get_optional_distance_at(state).unwrap_or(DISTANCE.max)
     }
     fn get_optional_distance_at(state: BlockStateId) -> Option<u8> {
         if state
@@ -74,7 +74,7 @@ impl LeavesBlock {
         {
             return Some(0);
         }
-        state.try_get_value(&DISTANCE)
+        state.try_get_value(DISTANCE)
     }
 }
 
@@ -105,12 +105,12 @@ impl BlockBehavior for LeavesBlock {
         _neighbor_pos: BlockPos,
         neighbor_state: BlockStateId,
     ) -> BlockStateId {
-        if state.get_value(&WATERLOGGED) {
+        if state.get_value(WATERLOGGED) {
             let delay = world.fluid_tick_delay(&vanilla_fluids::WATER);
             world.schedule_fluid_tick_default(pos, &vanilla_fluids::WATER, delay);
         }
         let distance_from_neighbor = Self::get_distance_at(neighbor_state) + 1;
-        if distance_from_neighbor != 1 || state.get_value(&DISTANCE) != distance_from_neighbor {
+        if distance_from_neighbor != 1 || state.get_value(DISTANCE) != distance_from_neighbor {
             world.schedule_block_tick_default(pos, self.block, 1);
         }
         state
@@ -119,8 +119,8 @@ impl BlockBehavior for LeavesBlock {
         let state = self
             .block
             .default_state()
-            .set_value(&PERSISTENT, true)
-            .set_value(&WATERLOGGED, context.is_water_source());
+            .set_value(PERSISTENT, true)
+            .set_value(WATERLOGGED, context.is_water_source());
         Some(Self::update_distance(
             state,
             context.world,
@@ -304,7 +304,7 @@ mod tests {
         init_behaviors();
         let state = vanilla_blocks::OAK_LEAVES
             .default_state()
-            .set_value(&WATERLOGGED, true);
+            .set_value(WATERLOGGED, true);
 
         let replacement = LeavesBlock::decayed_replacement(state);
 
@@ -325,7 +325,7 @@ mod tests {
             BlockPos::ZERO,
         );
 
-        assert_eq!(updated.get_value(&DISTANCE), 1);
+        assert_eq!(updated.get_value(DISTANCE), 1);
     }
 
     #[test]
