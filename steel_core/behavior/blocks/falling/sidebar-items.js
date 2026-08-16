@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["concrete_powder_block","falling_block","sand_block"]};
