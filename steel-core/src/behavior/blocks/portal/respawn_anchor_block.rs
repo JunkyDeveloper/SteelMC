@@ -19,6 +19,7 @@ use steel_utils::{
 
 use crate::entity::dismount_helper;
 use crate::{
+    behavior::blocks::redstone::MAX_REDSTONE_SIGNAL,
     behavior::{BlockBehavior, BlockPlaceContext, InteractionResult, InventoryAccess},
     entity::Entity,
     level_data::RespawnData,
@@ -35,7 +36,7 @@ use crate::{
 pub struct RespawnAnchorBlock {
     block: BlockRef,
 }
-const CHARGES: IntProperty = BlockStateProperties::RESPAWN_ANCHOR_CHARGES;
+const CHARGES: &IntProperty = &BlockStateProperties::RESPAWN_ANCHOR_CHARGES;
 impl RespawnAnchorBlock {
     const MAX_CHARGES: u8 = 4;
 
@@ -53,7 +54,7 @@ impl RespawnAnchorBlock {
         forced: bool,
     ) -> bool {
         state.get_block() == &vanilla_blocks::RESPAWN_ANCHOR
-            && (forced || state.get_value(&CHARGES) > 0)
+            && (forced || state.get_value(CHARGES) > 0)
             && Self::can_set_spawn(world, pos)
     }
 
@@ -85,8 +86,8 @@ impl RespawnAnchorBlock {
         if state.get_block() != &vanilla_blocks::RESPAWN_ANCHOR {
             return None;
         }
-        let charges = state.get_value(&CHARGES);
-        (charges > 0).then(|| state.set_value(&CHARGES, charges - 1))
+        let charges = state.get_value(CHARGES);
+        (charges > 0).then(|| state.set_value(CHARGES, charges - 1))
     }
 
     #[must_use]
@@ -136,25 +137,19 @@ impl RespawnAnchorBlock {
     }
 
     fn has_charge(state: BlockStateId) -> bool {
-        state.get_value(&CHARGES) > 0
+        state.get_value(CHARGES) > 0
     }
 
     fn can_be_charged(state: BlockStateId) -> bool {
-        state.get_value(&CHARGES) < Self::MAX_CHARGES
+        state.get_value(CHARGES) < Self::MAX_CHARGES
     }
 
     fn is_respawn_fuel(item_stack: &ItemStack) -> bool {
         item_stack.is(&vanilla_items::GLOWSTONE)
     }
 
-    const fn consume_respawn_fuel(item_stack: &mut ItemStack, has_infinite_materials: bool) {
-        if !has_infinite_materials {
-            item_stack.shrink(1);
-        }
-    }
-
     fn analog_output_signal(charges: u8) -> i32 {
-        i32::from(charges) * 15 / i32::from(Self::MAX_CHARGES)
+        i32::from(charges) * MAX_REDSTONE_SIGNAL / i32::from(Self::MAX_CHARGES)
     }
 
     fn player_offhand_has_respawn_fuel(player: &Player) -> bool {
@@ -166,8 +161,8 @@ impl RespawnAnchorBlock {
     }
 
     fn charge(source: Option<&dyn Entity>, world: &Arc<World>, pos: BlockPos, state: BlockStateId) {
-        let charges = state.get_value(&CHARGES);
-        let charged_state = state.set_value(&CHARGES, charges + 1);
+        let charges = state.get_value(CHARGES);
+        let charged_state = state.set_value(CHARGES, charges + 1);
         world.set_block(pos, charged_state, UpdateFlags::UPDATE_ALL);
         world.game_event(
             &vanilla_game_events::BLOCK_CHANGE,
@@ -205,7 +200,7 @@ impl BlockBehavior for RespawnAnchorBlock {
             Self::charge(Some(player), world, pos, state);
             let has_infinite_materials = player.has_infinite_materials();
             inv.with_item(|item_stack| {
-                Self::consume_respawn_fuel(item_stack, has_infinite_materials);
+                item_stack.consume_one(has_infinite_materials);
             });
             return InteractionResult::Success;
         }
@@ -274,7 +269,7 @@ impl BlockBehavior for RespawnAnchorBlock {
         _pos: BlockPos,
         _direction: Direction,
     ) -> i32 {
-        Self::analog_output_signal(state.get_value(&CHARGES))
+        Self::analog_output_signal(state.get_value(CHARGES))
     }
 }
 
@@ -282,8 +277,7 @@ impl BlockBehavior for RespawnAnchorBlock {
 mod tests {
     use super::*;
     use steel_registry::blocks::block_state_ext::BlockStateExt;
-    use steel_registry::item_stack::ItemStack;
-    use steel_registry::{init_vanilla_registry, vanilla_blocks, vanilla_items};
+    use steel_registry::{init_vanilla_registry, vanilla_blocks};
     use steel_utils::BlockPos;
 
     #[test]
@@ -328,8 +322,8 @@ mod tests {
         init_vanilla_registry();
 
         let empty = vanilla_blocks::RESPAWN_ANCHOR.default_state();
-        let partial = empty.set_value(&CHARGES, 1);
-        let full = empty.set_value(&CHARGES, RespawnAnchorBlock::MAX_CHARGES);
+        let partial = empty.set_value(CHARGES, 1);
+        let full = empty.set_value(CHARGES, RespawnAnchorBlock::MAX_CHARGES);
 
         assert!(!RespawnAnchorBlock::has_charge(empty));
         assert!(RespawnAnchorBlock::can_be_charged(empty));
@@ -337,19 +331,6 @@ mod tests {
         assert!(RespawnAnchorBlock::can_be_charged(partial));
         assert!(RespawnAnchorBlock::has_charge(full));
         assert!(!RespawnAnchorBlock::can_be_charged(full));
-    }
-
-    #[test]
-    fn consuming_respawn_fuel_respects_infinite_materials() {
-        init_vanilla_registry();
-
-        let mut survival_fuel = ItemStack::with_count(&vanilla_items::GLOWSTONE, 2);
-        RespawnAnchorBlock::consume_respawn_fuel(&mut survival_fuel, false);
-        assert_eq!(survival_fuel.count(), 1);
-
-        let mut creative_fuel = ItemStack::with_count(&vanilla_items::GLOWSTONE, 2);
-        RespawnAnchorBlock::consume_respawn_fuel(&mut creative_fuel, true);
-        assert_eq!(creative_fuel.count(), 2);
     }
 
     #[test]
@@ -374,12 +355,12 @@ mod tests {
 
         let charged = vanilla_blocks::RESPAWN_ANCHOR
             .default_state()
-            .set_value(&CHARGES, 2);
+            .set_value(CHARGES, 2);
         let Some(depleted) = RespawnAnchorBlock::state_after_charge_consumed(charged) else {
             panic!("charged respawn anchor should produce a depleted state");
         };
 
-        assert_eq!(depleted.get_value(&CHARGES), 1);
+        assert_eq!(depleted.get_value(CHARGES), 1);
         assert!(
             RespawnAnchorBlock::state_after_charge_consumed(
                 vanilla_blocks::RESPAWN_ANCHOR.default_state()

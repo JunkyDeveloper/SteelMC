@@ -301,11 +301,7 @@ impl World {
     ///
     /// Returns `None` if the item stack is empty.
     pub fn spawn_item(self: &Arc<Self>, pos: DVec3, item: ItemStack) -> Option<Arc<ItemEntity>> {
-        // Default ItemEntity velocity: random horizontal scatter + upward pop
-        let vx = rand::random::<f64>() * 0.2 - 0.1;
-        let vy = 0.2;
-        let vz = rand::random::<f64>() * 0.2 - 0.1;
-        self.spawn_item_with_velocity(pos, item, DVec3::new(vx, vy, vz))
+        self.spawn_item_with_velocity(pos, item, ItemEntity::default_spawn_velocity())
     }
 
     /// Spawns an item entity at the given position with initial velocity.
@@ -405,6 +401,10 @@ impl World {
         use steel_registry::vanilla_entities;
 
         if item.is_empty() {
+            return None;
+        }
+
+        if !self.get_game_rule(&BLOCK_DROPS) {
             return None;
         }
 

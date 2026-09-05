@@ -22,7 +22,10 @@ pub mod player_inventory;
 mod profile;
 mod sleep;
 mod sleep_state;
+mod spam_throttler;
+pub mod stats_counter;
 mod tick_state;
+mod title;
 
 pub use abilities::{Abilities, DEFAULT_FLYING_SPEED};
 use chat::ChatState;
@@ -48,14 +51,18 @@ pub use profile::{
 };
 use simdnbt::owned::{NbtCompound, NbtList, NbtTag};
 use sleep_state::PlayerSleepState;
+use std::mem::replace;
+use std::ptr;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Weak};
+use std::time::{Duration, Instant};
 use steel_protocol::packets::game::{
     CEntityEvent, CPlayerCombatKill, CPlayerLookAt, CRespawn, CSetDefaultSpawnPosition, CSetHealth,
     CSetHeldSlot, CSetPassengers, ClientCommandAction, LookAtAnchor, RelativeMovement, SoundSource,
 };
 use steel_protocol::packets::game::{CLevelEvent, CSetEntityData, CSetExperience};
 use steel_registry::blocks::block_state_ext::BlockStateExt as _;
-use steel_registry::entity_data::{EntityPose, ParticleList};
+use steel_registry::entity_data::{EntityPose, HumanoidArm, ParticleList};
 use steel_registry::entity_type::{EntityDimensions, EntityTypeRef};
 use steel_registry::game_rules::GameRuleRef;
 use steel_registry::sound_event::SoundEventRef;
@@ -66,10 +73,10 @@ use steel_registry::vanilla_game_rules::{
     SHOW_DEATH_MESSAGES,
 };
 use steel_registry::{
-    level_events, sound_events, vanilla_attributes, vanilla_damage_type_tags, vanilla_entities,
-    vanilla_game_events,
+    level_events, sound_events, vanilla_attributes, vanilla_custom_stats, vanilla_damage_type_tags,
+    vanilla_entities, vanilla_game_events,
 };
-use steel_utils::{entity_events::EntityStatus, locks::Shared};
+use steel_utils::{entity_events::EntityStatus, locks::Shared, translations};
 use tick_state::PlayerTickState;
 use uuid::Uuid;
 
@@ -84,8 +91,7 @@ use text_components::{
 };
 use text_components::{content::Resolvable, custom::CustomData};
 
-use crate::behavior::BlockStateBehaviorExt as _;
-use crate::behavior::InteractionResult;
+use crate::behavior::{BlockStateBehaviorExt as _, ITEM_BEHAVIORS, InteractionResult};
 use crate::chunk::chunk_request::{ChunkRequestHandle, ChunkRequestState};
 use crate::config::RuntimeConfig;
 use crate::enchantment_helper;
@@ -94,7 +100,8 @@ use crate::entity::entities::ExperienceOrbEntity;
 use crate::entity::{
     DEATH_DURATION, Entity, EntityAnchor, EntityBase, EntityEventSource, EntityMovementEmission,
     EntitySyncedData, LivingEntity, LivingEntityBase, LivingEntitySyncedData, MobEffectSyncChange,
-    MobEffectSyncPacket, RemovalReason, SharedEntity, apply_entity_look_at, start_riding_entities,
+    MobEffectSyncPacket, RemovalReason, SharedEntity, apply_entity_look_at, get_kill_credit,
+    start_riding_entities,
 };
 use crate::fluid::get_fluid_state;
 use crate::inventory::equipment::{EntityEquipment, EquipmentSlot};
@@ -125,7 +132,8 @@ use steel_protocol::packets::{
 };
 use steel_registry::RegistryEntry;
 use steel_registry::item_stack::ItemStack;
-
+use steel_registry::items::ItemRef;
+use steel_registry::stat::vanilla_stat_types;
 use steel_utils::{
     BlockPos, BlockStateId, ChunkPos, DowncastType, DowncastTypeKey, Identifier, UuidExt as _,
 };
@@ -133,9 +141,17 @@ use steel_utils::{
 use crate::inventory::container::Container;
 
 const RESPAWN_SEARCH_READY_CANDIDATE_BUDGET: usize = 8;
+const HAT_MODEL_PART_MASK: i8 = 0b0100_0000;
+
+const DROP_SPAM_THROTTLER_INCREMENT_STEP: i32 = 20;
+const DROP_SPAM_THROTTLER_THRESHOLD: i32 = 1480;
 
 use crate::chunk::player_chunk_view::PlayerChunkView;
+use crate::entity::entities::objects::projectiles::FishingHookEntity;
+use crate::inventory::ender_chest::{PlayerEnderChestContainer, SyncPlayerEnderChest};
 use crate::player::chunk_sender::ChunkSender;
+use crate::player::spam_throttler::TickThrottler;
+use crate::player::stats_counter::StatsCounter;
 use crate::portal::{
     PortalTicketTarget, TeleportPostAction, TeleportPostTransition, TeleportTransition,
 };
@@ -190,6 +206,9 @@ pub struct Player {
 
     /// Logical inventory slots that must be resent directly to this player's client.
     inventory_sync: SyncMutex<PlayerInventorySyncState>,
+
+    /// The player's ender chest inventory.
+    pub ender_chest_inventory: SyncPlayerEnderChest,
 
     /// Last main-hand stack used for vanilla attack-strength reset checks.
     last_item_in_main_hand: SyncMutex<ItemStack>,
@@ -253,6 +272,17 @@ pub struct Player {
     /// In-flight ender pearls thrown by this player, kept weakly so they persist
     /// with the player and re-spawn on login (vanilla `ServerPlayer.enderPearls`).
     ender_pearls: SyncMutex<Vec<Weak<dyn Entity>>>,
+
+    /// Active fishing hook, kept weakly because the world owns live entities.
+    pub(crate) fishing: SyncMutex<Option<Weak<FishingHookEntity>>>,
+
+    /// The counter keeping track of this player's statistics.
+    stats: SyncMutex<StatsCounter>,
+
+    /// The last action time of this player.
+    last_action_time: SyncMutex<Instant>,
+    /// Throttles the player dropping items from the Creative Menu.
+    drop_spam_throttler: SyncMutex<TickThrottler>,
 }
 
 // SAFETY: This key is owned by Steel and uniquely identifies `Player`.
@@ -297,15 +327,155 @@ impl PlayerResidenceState {
 }
 
 impl Player {
+    const USING_ITEM_FLAG: i8 = 1;
+    const OFF_HAND_ACTIVE_ITEM_FLAG: i8 = 1 << 1;
+
+    /// Returns the hand currently driving active item use.
+    #[must_use]
+    pub fn active_item_use_hand(&self) -> Option<InteractionHand> {
+        self.living_base
+            .active_item_use()
+            .map(|active| active.hand())
+    }
+
+    /// Starts using the item currently held in `hand`.
+    pub fn start_using_item(&self, hand: InteractionHand) {
+        let item = {
+            let inventory = self.inventory.lock();
+            let item = inventory.get_item_in_hand(hand);
+            item.copy_with_count(item.count())
+        };
+        let duration = ITEM_BEHAVIORS
+            .get_behavior(item.item())
+            .get_use_duration(&item, self);
+        if self.living_base.start_using_item(hand, &item, duration) {
+            let mut entity_data = self.entity_data.lock();
+            let flags = entity_data.living_entity().living_entity_flags.get();
+            let mut flags = *flags | Self::USING_ITEM_FLAG;
+            if hand == InteractionHand::OffHand {
+                flags |= Self::OFF_HAND_ACTIVE_ITEM_FLAG;
+            } else {
+                flags &= !Self::OFF_HAND_ACTIVE_ITEM_FLAG;
+            }
+            entity_data
+                .living_entity_mut()
+                .living_entity_flags
+                .set(flags);
+        }
+    }
+
+    fn stop_using_item(&self) {
+        self.living_base.stop_using_item();
+        let mut entity_data = self.entity_data.lock();
+        let flags = *entity_data.living_entity().living_entity_flags.get();
+        entity_data
+            .living_entity_mut()
+            .living_entity_flags
+            .set(flags & !Self::USING_ITEM_FLAG);
+    }
+
+    /// Releases the currently used item and invokes its release hook.
+    pub fn release_using_item(&self) {
+        let Some(active) = self.living_base.active_item_use() else {
+            return;
+        };
+        let hand = active.hand();
+        let item_matches = {
+            let inventory = self.inventory.lock();
+            inventory.get_item_in_hand(hand).item() == active.item()
+        };
+        if !item_matches {
+            self.stop_using_item();
+            return;
+        }
+        let mut item = {
+            let mut inventory = self.inventory.lock();
+            replace(inventory.get_item_in_hand_mut(hand), ItemStack::empty())
+        };
+        let world = self.get_world();
+        let use_on_release = ITEM_BEHAVIORS.get_behavior(item.item()).release_using(
+            &mut item,
+            &world,
+            self,
+            active.remaining_ticks(),
+        );
+        self.inventory.lock().set_item_in_hand(hand, item);
+        if use_on_release {
+            self.tick_active_item_use();
+        }
+        self.stop_using_item();
+    }
+
+    fn tick_active_item_use(&self) {
+        let Some(active) = self.living_base.active_item_use() else {
+            return;
+        };
+        let hand = active.hand();
+        let item_matches = {
+            let inventory = self.inventory.lock();
+            inventory.get_item_in_hand(hand).item() == active.item()
+        };
+        if !item_matches {
+            self.stop_using_item();
+            return;
+        }
+        let mut item = {
+            let mut inventory = self.inventory.lock();
+            replace(inventory.get_item_in_hand_mut(hand), ItemStack::empty())
+        };
+        let world = self.get_world();
+        let behavior = ITEM_BEHAVIORS.get_behavior(item.item());
+        behavior.on_use_tick(&world, self, &mut item, active.remaining_ticks());
+
+        if self.active_item_use_hand() != Some(hand) {
+            self.inventory.lock().set_item_in_hand(hand, item);
+            return;
+        }
+        let Some(active) = self.living_base.decrement_active_item_use() else {
+            self.inventory.lock().set_item_in_hand(hand, item);
+            return;
+        };
+        if active.remaining_ticks() <= 0 {
+            item = behavior.finish_using(&mut item, &world, self);
+            self.stop_using_item();
+        }
+
+        self.inventory.lock().set_item_in_hand(hand, item);
+    }
+
+    /// Returns the player's configured main arm.
+    #[must_use]
+    pub fn main_arm(&self) -> HumanoidArm {
+        self.client_information.lock().main_hand
+    }
+
+    #[must_use]
+    pub(crate) fn shows_hat(&self) -> bool {
+        let model_customization = *self
+            .entity_data
+            .lock()
+            .avatar()
+            .player_mode_customization
+            .get();
+        model_customization & HAT_MODEL_PART_MASK != 0
+    }
+
+    fn apply_client_information_to_entity_data(
+        data: &mut PlayerEntityData,
+        client_information: &ClientInformation,
+    ) {
+        let avatar = data.avatar_mut();
+        avatar.player_main_hand.set(client_information.main_hand);
+        avatar
+            .player_mode_customization
+            .set(client_information.model_customization.cast_signed());
+    }
+
     /// Computes the start (eye position) and end positions for a raytrace.
     pub fn get_ray_endpoints(&self) -> (DVec3, DVec3) {
         let pos = self.position();
         let start_pos = DVec3::new(pos.x, self.get_eye_y(), pos.z);
-        let block_interaction_range = self
-            .attributes()
-            .lock()
-            .get_value(vanilla_attributes::BLOCK_INTERACTION_RANGE)
-            .unwrap_or(4.5);
+        let block_interaction_range = self.block_interaction_range();
         let direction = self.look_angle() * block_interaction_range;
 
         let end_pos = start_pos + direction;
@@ -346,6 +516,7 @@ impl Player {
     ) -> Self {
         // Create a single shared inventory container used by both the player and inventory menu
         let inventory = Arc::new(SyncMutex::new(PlayerInventory::new()));
+        let ender_chest_inventory = Arc::new(SyncMutex::new(PlayerEnderChestContainer::new()));
 
         let pos = DVec3::new(0.0, 0.0, 0.0);
 
@@ -375,6 +546,7 @@ impl Player {
             entity_data: SyncMutex::new({
                 let mut data = PlayerEntityData::new();
                 living_base.initialize_synced_data(&mut data);
+                Self::apply_client_information_to_entity_data(&mut data, &client_information);
                 data
             }),
             last_chunk_pos: SyncMutex::new(ChunkPos::new(0, 0)),
@@ -388,6 +560,7 @@ impl Player {
             game_modes: SyncMutex::new(PlayerGameModeState::new(GameType::Survival)),
             inventory: inventory.clone(),
             inventory_sync: SyncMutex::new(PlayerInventorySyncState::new()),
+            ender_chest_inventory,
             last_item_in_main_hand: SyncMutex::new(ItemStack::empty()),
             inventory_menu: SyncMutex::new(inventory_menu(inventory)),
             open_menu: SyncMutex::new(player_inventory::OpenMenuState::new()),
@@ -409,6 +582,40 @@ impl Player {
             chunk_send_epoch: SyncMutex::new(0),
             residence: SyncMutex::new(PlayerResidenceState::new()),
             ender_pearls: SyncMutex::new(Vec::new()),
+            fishing: SyncMutex::new(None),
+            stats: SyncMutex::new(StatsCounter::new()),
+            last_action_time: SyncMutex::new(Instant::now()),
+            drop_spam_throttler: SyncMutex::new(TickThrottler::new(
+                DROP_SPAM_THROTTLER_INCREMENT_STEP,
+                DROP_SPAM_THROTTLER_THRESHOLD,
+            )),
+        }
+    }
+
+    /// Returns the active fishing hook, clearing a stale reference after removal.
+    pub fn fishing_hook(&self) -> Option<Arc<FishingHookEntity>> {
+        let mut fishing = self.fishing.lock();
+        let hook = fishing.as_ref().and_then(Weak::upgrade);
+        if hook.is_none() {
+            *fishing = None;
+        }
+        hook
+    }
+
+    /// Records the hook currently owned by this player.
+    pub fn set_fishing_hook(&self, hook: &Arc<FishingHookEntity>) {
+        *self.fishing.lock() = Some(Arc::downgrade(hook));
+    }
+
+    /// Clears `hook` if it is still this player's active fishing hook.
+    pub fn clear_fishing_hook(&self, hook: &FishingHookEntity) {
+        let mut fishing = self.fishing.lock();
+        if fishing
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .is_some_and(|active| ptr::eq(active.as_ref(), hook))
+        {
+            *fishing = None;
         }
     }
 
@@ -422,7 +629,8 @@ impl Player {
         self.advance_tick();
         self.tick_item_cooldowns();
         self.tick_attack_strength();
-        self.tick_spam_throttlers();
+        self.tick_throttlers();
+        self.check_idle_timeout();
         self.tick_client_load_timeout();
         self.tick_sleep_counter();
         if self.is_sleeping() {
@@ -471,6 +679,9 @@ impl Player {
 
         self.living_base.decrement_invulnerable_time();
         self.tick_mob_effects();
+        self.tick_active_item_use();
+        // TODO: Tick stats even when the player has been dead for more than 20 ticks.
+        self.tick_stats();
 
         if self.get_health() <= 0.0 {
             self.tick_death();
@@ -527,6 +738,12 @@ impl Player {
             }
         }
 
+        self.send_experience_packet_if_dirty();
+
+        self.connection.tick();
+    }
+
+    fn send_experience_packet_if_dirty(&self) {
         let experience_packet = {
             let mut experience = self.experience.lock();
             if experience.dirty {
@@ -543,8 +760,6 @@ impl Player {
         if let Some(packet) = experience_packet {
             self.send_packet(packet);
         }
-
-        self.connection.tick();
     }
 
     /// Ticks the death animation timer.
@@ -566,13 +781,48 @@ impl Player {
 
             world.unregister_player_entity(self);
             world.chunk_map.remove_player(self);
-            world.entity_tracker().on_player_leave(self.id());
+            world.entity_tracker().on_player_leave(self);
             world.player_area_map.remove_by_entity_id(self.id());
             self.set_removed(RemovalReason::Killed);
             assert_eq!(
                 self.remove_all_menus_with_disposition(MenuItemDisposition::Drop),
                 MenuRemovalStatus::Complete,
                 "death removal menu cleanup must run outside a menu callback"
+            );
+        }
+    }
+
+    /// Ticks to award stats that are awarded based on ticks.
+    fn tick_stats(&self) {
+        // These stats are expressed in ticks.
+        // We batch the stats so that the mutex for stats is only
+        // locked once.
+        let mut stats = self.stats.lock();
+        stats.increment(
+            vanilla_stat_types::CUSTOM.get(&vanilla_custom_stats::PLAY_TIME),
+            1,
+        );
+        stats.increment(
+            vanilla_stat_types::CUSTOM.get(&vanilla_custom_stats::TOTAL_WORLD_TIME),
+            1,
+        );
+
+        if Entity::is_alive(self) {
+            stats.increment(
+                vanilla_stat_types::CUSTOM.get(&vanilla_custom_stats::TIME_SINCE_DEATH),
+                1,
+            );
+        }
+        if self.is_discrete() {
+            stats.increment(
+                vanilla_stat_types::CUSTOM.get(&vanilla_custom_stats::SNEAK_TIME),
+                1,
+            );
+        }
+        if !self.is_sleeping() {
+            stats.increment(
+                vanilla_stat_types::CUSTOM.get(&vanilla_custom_stats::TIME_SINCE_REST),
+                1,
             );
         }
     }
@@ -694,10 +944,24 @@ impl Player {
         let damage = (damage - self.get_absorption_amount()).max(0.0);
         self.set_absorption_amount(self.get_absorption_amount() - (original_damage - damage));
 
+        let absorbed_damage = original_damage - damage;
+        if (0.0..f32::MAX).contains(&absorbed_damage) {
+            self.award_custom_stat_with_count(
+                &vanilla_custom_stats::DAMAGE_ABSORBED,
+                (absorbed_damage * 10.0).round() as i32,
+            );
+        }
+
         // TODO: combat tracker (getCombatTracker().recordDamage)
         if damage != 0.0 {
             self.cause_food_exhaustion(source.damage_type.exhaustion);
             self.set_health(self.get_health() - damage);
+            if damage < f32::MAX {
+                self.award_custom_stat_with_count(
+                    &vanilla_custom_stats::DAMAGE_TAKEN,
+                    (damage * 10.0).round() as i32,
+                );
+            }
             self.game_event(&vanilla_game_events::ENTITY_DAMAGE);
         }
     }
@@ -773,6 +1037,17 @@ impl Player {
                 ExperienceOrbEntity::award(&world, self.position(), reward);
             }
         }
+
+        // TODO: Increment DEATH_COUNT objective criterion
+        if let Some(killer) = get_kill_credit(self, world.as_ref()) {
+            self.award_stat(&vanilla_stat_types::ENTITY_KILLED_BY, killer.entity_type());
+            killer.award_kill_score(self, source);
+            // TODO: Create wither rose
+        }
+
+        self.award_custom_stat(&vanilla_custom_stats::DEATHS);
+        self.reset_custom_stat(&vanilla_custom_stats::TIME_SINCE_DEATH);
+        self.reset_custom_stat(&vanilla_custom_stats::TIME_SINCE_REST);
 
         self.clear_fire();
         self.set_ticks_frozen(0);
@@ -1082,6 +1357,24 @@ impl Player {
             affecting_pos
         }
     }
+
+    /// Resets the last action time of the player (to the current time).
+    pub fn reset_last_action_time(&self) {
+        *self.last_action_time.lock() = Instant::now();
+    }
+
+    fn check_idle_timeout(&self) {
+        if let Some(server) = self.server.upgrade() {
+            let player_idle_timeout = server.player_idle_timeout.load(Ordering::Relaxed);
+            if player_idle_timeout > 0
+                && Instant::now().duration_since(*self.last_action_time.lock())
+                    > Duration::from_mins(player_idle_timeout as u64)
+                && !self.has_won_game()
+            {
+                self.disconnect(translations::MULTIPLAYER_DISCONNECT_IDLING.msg());
+            }
+        }
+    }
 }
 
 impl Entity for Player {
@@ -1157,6 +1450,17 @@ impl Entity for Player {
         } else {
             self.default_update_swimming();
         }
+    }
+
+    fn ride_tick(&self) {
+        let pre = self.position();
+        if self.wants_to_stop_riding() && self.is_passenger() {
+            self.stop_riding();
+        } else {
+            self.default_ride_tick();
+            self.reset_fall_distance();
+        }
+        self.check_riding_statistics(self.position() - pre);
     }
 
     fn stop_riding(&self) {
@@ -1334,7 +1638,13 @@ impl Entity for Player {
             return false;
         }
 
-        // TODO: Award `Stats.FALL_ONE_CM` once player statistics are implemented.
+        if fall_distance >= 2.0 {
+            self.award_custom_stat_with_count(
+                &vanilla_custom_stats::FALL_ONE_CM,
+                (fall_distance * 100.0).round() as i32,
+            );
+        }
+
         LivingEntity::cause_living_fall_damage(self, fall_distance, damage_modifier, source)
     }
 
@@ -1375,6 +1685,20 @@ impl Entity for Player {
 
     fn sound_source(&self) -> SoundSource {
         SoundSource::Players
+    }
+
+    /// Matches vanilla `Player.playSound`, which excludes the source player.
+    fn play_sound(&self, sound: SoundEventRef, volume: f32, pitch: f32) {
+        if let Some(world) = self.level() {
+            world.play_sound_at(
+                sound,
+                self.sound_source(),
+                self.position(),
+                volume,
+                pitch,
+                Some(self.id()),
+            );
+        }
     }
 
     fn swim_sound(&self) -> SoundEventRef {
@@ -1435,6 +1759,30 @@ impl Entity for Player {
         // player-specific prechecks before the shared living hurt path.
         Player::hurt(self, world, source, amount)
     }
+
+    fn killed_entity(
+        &self,
+        _world: &World,
+        entity: &dyn LivingEntity,
+        _source: &DamageSource,
+    ) -> bool {
+        log::debug!("1");
+        self.award_stat(&vanilla_stat_types::ENTITY_KILLED, entity.entity_type());
+        true
+    }
+
+    fn award_kill_score(&self, victim: &dyn Entity, _killing_blow: &DamageSource) {
+        if self.id() != victim.id() {
+            // TODO: Trigger advancement criteria.
+            // TODO: Increment the score of some objectives of this player.
+            self.award_custom_stat(if victim.as_player().is_some() {
+                &vanilla_custom_stats::PLAYER_KILLS
+            } else {
+                &vanilla_custom_stats::MOB_KILLS
+            });
+            // TODO: Handle team kill
+        }
+    }
 }
 
 const fn protocol_look_at_anchor(anchor: EntityAnchor) -> LookAtAnchor {
@@ -1469,6 +1817,16 @@ impl LivingEntity for Player {
 
     fn living_base(&self) -> &LivingEntityBase {
         &self.living_base
+    }
+
+    fn is_using_item(&self) -> bool {
+        self.living_base.is_using_item()
+    }
+
+    fn get_luck(&self) -> f32 {
+        self.attributes()
+            .lock()
+            .required_value(vanilla_attributes::LUCK) as f32
     }
 
     fn can_be_seen_as_enemy(&self) -> bool {
@@ -1656,7 +2014,7 @@ impl LivingEntity for Player {
 
     fn jump_from_ground(&self) {
         self.default_jump_from_ground();
-        // TODO: Award Stats.JUMP once player statistics exist.
+        self.award_custom_stat(&vanilla_custom_stats::JUMP);
         if self.is_sprinting() {
             self.cause_food_exhaustion(0.2);
         } else {
@@ -1723,6 +2081,12 @@ impl LivingEntity for Player {
         } else {
             0.02
         }
+    }
+
+    fn on_equipped_item_broken(&self, item: ItemRef, slot: EquipmentSlot) {
+        self.broadcast_entity_event(slot.into());
+        self.refresh_equipment_attribute_modifiers(slot);
+        self.award_stat(&vanilla_stat_types::ITEM_BROKEN, item);
     }
 }
 

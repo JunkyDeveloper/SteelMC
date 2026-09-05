@@ -104,13 +104,10 @@ pub fn use_item_on(
         let item_behavior = item_behaviors.get_behavior(item_ref);
         let result = item_behavior.use_on(&mut context);
 
-        // Restore count for creative mode (infinite materials)
+        // Restored in both directions: `use_on` can also grow the held stack when
+        // its result merges back into the slot it came from.
         if player.has_infinite_materials() {
-            context.inv.with_item(|item| {
-                if item.count < original_count {
-                    item.count = original_count;
-                }
-            });
+            context.inv.with_item(|item| item.count = original_count);
         }
 
         return result;
@@ -129,8 +126,8 @@ pub fn use_item(player: &Player, world: &Arc<World>, hand: InteractionHand) -> I
     }
 
     let inventory_access = InventoryAccess::new(player.inventory.clone(), hand);
-    let (is_empty, original_count, item_ref, stack_before_use) =
-        inventory_access.with_item(|item| (item.is_empty(), item.count, item.item, item.clone()));
+    let (is_empty, item_ref, stack_before_use) =
+        inventory_access.with_item(|item| (item.is_empty(), item.item, item.clone()));
 
     if !is_empty {
         if player.is_item_on_cooldown(&stack_before_use) {
@@ -145,15 +142,6 @@ pub fn use_item(player: &Player, world: &Arc<World>, hand: InteractionHand) -> I
         let item_behavior = item_behaviors.get_behavior(item_ref);
 
         let result = item_behavior.use_item(&mut context);
-
-        // Restore count for creative mode (infinite materials)
-        if player.has_infinite_materials() {
-            context.inv.with_item(|item| {
-                if item.count < original_count {
-                    item.count = original_count;
-                }
-            });
-        }
 
         if result.should_apply_item_use_side_effects() {
             player.apply_item_use_cooldown(&stack_before_use);
@@ -171,6 +159,8 @@ impl Player {
         if !self.has_client_loaded() {
             return;
         }
+
+        self.reset_last_action_time();
 
         log::debug!(
             "Player {} used {:?} (sequence: {}, yaw: {}, pitch: {})",
@@ -221,21 +211,19 @@ impl Player {
 
 #[cfg(test)]
 mod tests {
-    use steel_protocol::packets::game::SUseItem;
-    use steel_registry::{item_stack::ItemStack, vanilla_items};
-    use steel_utils::types::InteractionHand;
-    use uuid::Uuid;
-
     use crate::behavior::init_behaviors;
     use crate::entity::Entity as _;
     use crate::player::connection::NetworkConnection as _;
     use crate::test_support::{TestPlayerBuilder, fresh_test_world};
+    use steel_protocol::packets::game::SUseItem;
+    use steel_registry::{item_stack::ItemStack, vanilla_items};
+    use steel_utils::types::InteractionHand;
 
     #[test]
     fn use_item_discards_non_finite_rotation_components() {
         let world = fresh_test_world("use_item_non_finite_rotation");
         init_behaviors();
-        let player = TestPlayerBuilder::new(world, Uuid::from_u128(1), "TestPlayer", 1).build();
+        let player = TestPlayerBuilder::new(world, "TestPlayer", 1).build();
         player.set_client_loaded(true);
         player
             .inventory
