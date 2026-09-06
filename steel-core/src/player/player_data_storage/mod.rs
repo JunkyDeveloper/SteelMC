@@ -2,6 +2,7 @@
 
 mod file_storage;
 mod known_players;
+mod memory_storage;
 mod permissions;
 mod stats;
 
@@ -31,6 +32,7 @@ use crate::permission::PermissionSubjectState;
 use crate::player::KnownPlayers;
 use crate::player::Player;
 use crate::player::player_data_storage::file_storage::FilePlayerDataStorage;
+use crate::player::player_data_storage::memory_storage::MemoryPlayerDataStorage;
 use steel_registry::item_stack::ItemStack;
 use steel_utils::{BlockPos, Identifier};
 
@@ -54,6 +56,7 @@ pub struct PlayerDataStorage {
 
 enum PlayerDataStorageBackend {
     File(FilePlayerDataStorage),
+    Memory(MemoryPlayerDataStorage),
 }
 
 #[derive(SchemaWrite, SchemaRead)]
@@ -137,7 +140,7 @@ struct GlobalPlayerDataFile {
 
 impl PlayerDataStorage {
     /// Creates player data storage from config.
-    pub async fn new(save_root: PathBuf, selection: StorageSelection) -> io::Result<Self> {
+    pub async fn on_disk(save_root: PathBuf, selection: StorageSelection) -> io::Result<Self> {
         if selection.kind != Identifier::from_steel("file") {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -146,6 +149,17 @@ impl PlayerDataStorage {
         }
         let backend = PlayerDataStorageBackend::File(FilePlayerDataStorage::new(save_root).await?);
         Ok(Self { backend })
+    }
+
+    /// Creates player data storage that keeps everything in RAM.
+    ///
+    /// Nothing is written to or read from disk, so the data lives exactly as
+    /// long as this storage does.
+    #[must_use]
+    pub fn in_memory() -> Self {
+        Self {
+            backend: PlayerDataStorageBackend::Memory(MemoryPlayerDataStorage::default()),
+        }
     }
 
     /// Saves a player's current domain data and global last-active-domain.
@@ -165,6 +179,10 @@ impl PlayerDataStorage {
     pub async fn save_domain(&self, domain: &str, player: &Player) -> io::Result<()> {
         match &self.backend {
             PlayerDataStorageBackend::File(storage) => storage.save_domain(domain, player).await,
+            PlayerDataStorageBackend::Memory(storage) => {
+                storage.save_domain(domain, player);
+                Ok(())
+            }
         }
     }
 
@@ -179,6 +197,10 @@ impl PlayerDataStorage {
             PlayerDataStorageBackend::File(storage) => {
                 storage.save_domain_data(domain, uuid, data).await
             }
+            PlayerDataStorageBackend::Memory(storage) => {
+                storage.save_domain_data(domain, uuid, data);
+                Ok(())
+            }
         }
     }
 
@@ -190,6 +212,7 @@ impl PlayerDataStorage {
     ) -> io::Result<Option<PersistentPlayerData>> {
         match &self.backend {
             PlayerDataStorageBackend::File(storage) => storage.load_domain(domain, uuid).await,
+            PlayerDataStorageBackend::Memory(storage) => Ok(storage.load_domain(domain, uuid)),
         }
     }
 
@@ -197,6 +220,7 @@ impl PlayerDataStorage {
     pub async fn load_global(&self, uuid: Uuid) -> io::Result<Option<GlobalPlayerData>> {
         match &self.backend {
             PlayerDataStorageBackend::File(storage) => storage.load_global(uuid).await,
+            PlayerDataStorageBackend::Memory(storage) => Ok(storage.load_global(uuid)),
         }
     }
 
@@ -204,6 +228,7 @@ impl PlayerDataStorage {
     pub async fn load_permission_subjects(&self) -> io::Result<PermissionSubjectIndex> {
         match &self.backend {
             PlayerDataStorageBackend::File(storage) => storage.load_permission_subjects().await,
+            PlayerDataStorageBackend::Memory(storage) => Ok(storage.load_permission_subjects()),
         }
     }
 
@@ -211,6 +236,7 @@ impl PlayerDataStorage {
     pub async fn load_known_players(&self) -> io::Result<KnownPlayers> {
         match &self.backend {
             PlayerDataStorageBackend::File(storage) => storage.load_known_players().await,
+            PlayerDataStorageBackend::Memory(storage) => Ok(storage.load_known_players()),
         }
     }
 
@@ -226,6 +252,9 @@ impl PlayerDataStorage {
                     .save_known_players_if_current(players, is_current)
                     .await
             }
+            PlayerDataStorageBackend::Memory(storage) => {
+                Ok(storage.save_known_players_if_current(players, is_current))
+            }
         }
     }
 
@@ -233,6 +262,10 @@ impl PlayerDataStorage {
     pub async fn save_global(&self, uuid: Uuid, data: &GlobalPlayerData) -> io::Result<()> {
         match &self.backend {
             PlayerDataStorageBackend::File(storage) => storage.save_global(uuid, data).await,
+            PlayerDataStorageBackend::Memory(storage) => {
+                storage.save_global(uuid, data);
+                Ok(())
+            }
         }
     }
 
@@ -244,6 +277,10 @@ impl PlayerDataStorage {
         match &self.backend {
             PlayerDataStorageBackend::File(storage) => {
                 storage.save_permission_subjects(subjects).await
+            }
+            PlayerDataStorageBackend::Memory(storage) => {
+                storage.save_permission_subjects(subjects);
+                Ok(())
             }
         }
     }

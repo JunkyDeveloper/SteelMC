@@ -212,7 +212,7 @@ async fn test_server_with_worlds(
     let command_storage = DomainCommandStorage::load(&worlds)
         .await
         .map_err(|error| format!("test command storage should load: {error}"))?;
-    let player_data_storage = PlayerDataStorage::new(
+    let player_data_storage = PlayerDataStorage::on_disk(
         storage_root.to_owned(),
         StorageSelection::default_player_file(),
     )

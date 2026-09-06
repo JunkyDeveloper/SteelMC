@@ -598,7 +598,7 @@ impl Server {
                 .map_err(|e| format!("failed to create chunk encoding thread pool: {e}"))?
         });
 
-        let player_data_storage = PlayerDataStorage::new(
+        let player_data_storage = PlayerDataStorage::on_disk(
             resolved_worlds.save_path.clone(),
             resolved_worlds.player_storage.clone(),
         )
