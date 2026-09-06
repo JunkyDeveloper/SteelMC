@@ -139,14 +139,27 @@ struct GlobalPlayerDataFile {
 }
 
 impl PlayerDataStorage {
-    /// Creates player data storage from config.
-    pub async fn on_disk(save_root: PathBuf, selection: StorageSelection) -> io::Result<Self> {
-        if selection.kind != Identifier::from_steel("file") {
-            return Err(io::Error::new(
+    /// Creates the player data storage a config selection asks for.
+    ///
+    /// `save_root` is only used by backends that persist.
+    pub async fn from_selection(
+        save_root: PathBuf,
+        selection: &StorageSelection,
+    ) -> io::Result<Self> {
+        if selection.kind == Identifier::from_steel("file") {
+            Self::on_disk(save_root).await
+        } else if selection.kind == Identifier::from_steel("ram") {
+            Ok(Self::in_memory())
+        } else {
+            Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!("unknown player storage {}", selection.kind),
-            ));
+            ))
         }
+    }
+
+    /// Creates player data storage backed by files under `save_root`.
+    pub async fn on_disk(save_root: PathBuf) -> io::Result<Self> {
         let backend = PlayerDataStorageBackend::File(FilePlayerDataStorage::new(save_root).await?);
         Ok(Self { backend })
     }
