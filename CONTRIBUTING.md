@@ -4,6 +4,14 @@ We welcome contributions to Steel! By contributing, you help us make Steel the b
 
 ## Before You Start
 
+### New Starters
+
+As a new contributor, please limit yourself to 3 open PRs at a time. This lets us give you feedback you can apply to your next PRs.
+
+### Review time
+
+Maintainers review PRs in their free time, so an initial review can take a while. If you haven't heard back after a week, ask on Discord or leave a comment on your PR to get our attention.
+
 ### Discuss Major Changes
 
 Before implementing any major changes or new features, please create a post in the [#feature-discussion](https://canary.discord.com/channels/1428487339759370322/1429074039015473272) channel on our [Discord](https://discord.gg/MwChEHnAbh) server. This allows for discussion of potential problems, alternative solutions, and overall alignment with the project's direction.
