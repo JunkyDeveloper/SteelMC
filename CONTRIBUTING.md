@@ -7,6 +7,7 @@ We welcome contributions to Steel! By contributing, you help us make Steel the b
 ### New Starters
 
 As a new contributor, please limit yourself to 3 open PRs at a time, so we can give feedback on your existing ones before you open more.
+Also, start with a small, simple contribution first, around 1k lines changed or less, so it's quicker to review.
 
 ### Review time
 
