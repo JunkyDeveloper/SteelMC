@@ -2,6 +2,7 @@
 
 use glam::DVec3;
 use std::sync::Arc;
+use steel_math::{DEGREE_90, DEGREE_180, DEGREE_270};
 use steel_registry::blocks::properties::Direction;
 use steel_registry::item_stack::ItemStack;
 use steel_utils::BlockPos;
@@ -403,11 +404,11 @@ impl PlacementOrientation {
         match self {
             Self::Player { rotation, .. } => rotation,
             Self::Directional { direction } => match direction {
-                Direction::Down | Direction::Up => -90.0,
+                Direction::Down | Direction::Up => -DEGREE_90,
                 Direction::South => 0.0,
-                Direction::West => 90.0,
-                Direction::North => 180.0,
-                Direction::East => 270.0,
+                Direction::West => DEGREE_90,
+                Direction::North => DEGREE_180,
+                Direction::East => DEGREE_270,
             },
         }
     }
@@ -693,7 +694,7 @@ mod tests {
     use std::sync::Arc;
 
     use steel_registry::data_components::vanilla_components::BLOCK_STATE;
-    use steel_registry::test_support::init_test_registry;
+    use steel_registry::init_vanilla_registry;
     use steel_registry::vanilla_items;
     use steel_utils::locks::SyncMutex;
 
@@ -715,7 +716,7 @@ mod tests {
 
     #[test]
     fn player_hand_source_reads_current_components_and_mutates_the_hand() {
-        init_test_registry();
+        init_vanilla_registry();
 
         let inventory = Arc::new(SyncMutex::new(PlayerInventory::new()));
         inventory
@@ -734,7 +735,7 @@ mod tests {
         };
 
         assert!(source.with_item(|item| item.get(BLOCK_STATE).is_some()));
-        source.with_item_mut(|item| item.shrink(1));
+        source.with_item_mut(ItemStack::shrink_one);
         assert_eq!(
             inventory
                 .lock()
@@ -746,7 +747,7 @@ mod tests {
 
     #[test]
     fn replacement_dispatch_does_not_hold_the_inventory_lock() {
-        init_test_registry();
+        init_vanilla_registry();
         init_behaviors();
 
         let inventory = Arc::new(SyncMutex::new(PlayerInventory::new()));
@@ -783,7 +784,7 @@ mod tests {
 
     #[test]
     fn direct_source_mutates_the_callers_exact_stack() {
-        init_test_registry();
+        init_vanilla_registry();
 
         let mut stack = ItemStack::with_count(&vanilla_items::LIGHT, 2);
         {
@@ -797,14 +798,14 @@ mod tests {
                 false,
             );
             assert!(source.with_item(|item| item.get(BLOCK_STATE).is_some()));
-            source.with_item_mut(|item| item.shrink(1));
+            source.with_item_mut(ItemStack::shrink_one);
         }
         assert_eq!(stack.count(), 1);
     }
 
     #[test]
     fn at_changes_geometry_and_retains_the_direct_source() {
-        init_test_registry();
+        init_vanilla_registry();
         init_behaviors();
 
         let mut stack = ItemStack::new(&vanilla_items::STONE);
@@ -836,14 +837,14 @@ mod tests {
         assert_eq!(shifted.click_location(), DVec3::new(5.0, 90.5, 7.5));
         assert!(!shifted.is_inside());
         assert!(shifted.with_item(|item| item.is(&vanilla_items::STONE)));
-        shifted.with_item_mut(|item| item.shrink(1));
+        shifted.with_item_mut(ItemStack::shrink_one);
         drop(shifted);
         assert!(stack.is_empty());
     }
 
     #[test]
     fn directional_context_uses_vanilla_direction_order() {
-        init_test_registry();
+        init_vanilla_registry();
         init_behaviors();
 
         let mut stack = ItemStack::new(&vanilla_items::STONE);
@@ -872,7 +873,7 @@ mod tests {
 
     #[test]
     fn singular_look_direction_is_not_reordered_around_clicked_face() {
-        init_test_registry();
+        init_vanilla_registry();
         init_behaviors();
 
         let mut stack = ItemStack::new(&vanilla_items::PISTON);

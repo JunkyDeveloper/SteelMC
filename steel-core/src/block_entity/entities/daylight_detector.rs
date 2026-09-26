@@ -71,7 +71,8 @@ impl BlockEntity for DaylightDetectorBlockEntity {
 
 #[cfg(test)]
 mod tests {
-    use steel_registry::test_support::init_test_registry;
+    use crate::test_support::advance_test_game_time_to;
+    use steel_registry::init_vanilla_registry;
     use steel_registry::{vanilla_blocks, vanilla_world_clocks};
     use steel_utils::ChunkPos;
 
@@ -81,7 +82,7 @@ mod tests {
 
     #[test]
     fn detector_updates_only_on_vanilla_twenty_game_tick_cadence() {
-        init_test_registry();
+        init_vanilla_registry();
         init_behaviors();
         let world = fresh_test_world("daylight_detector_cadence");
         assert_eq!(
@@ -104,7 +105,7 @@ mod tests {
             11
         );
 
-        world.level_data.write().set_game_time(1);
+        advance_test_game_time_to(&world, 1);
         assert!(world.set_block(pos, state, UpdateFlags::UPDATE_ALL));
         detector.tick(&world);
         assert_eq!(
