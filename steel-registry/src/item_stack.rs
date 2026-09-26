@@ -133,6 +133,11 @@ impl ItemStack {
         self.count -= amount;
     }
 
+    /// Decreases the count by one.
+    pub const fn shrink_one(&mut self) {
+        self.count -= 1;
+    }
+
     /// Decreases the count by the given amount, unless the user has infinite
     /// materials.
     ///
@@ -284,7 +289,7 @@ impl ItemStack {
             // TODO: Call onEquippedItemBroken callback which:
             // - Broadcasts entity event (byte 47 for mainhand) for break sound/particles
             // - Stops location-based effects (removes attribute modifiers)
-            self.shrink(1);
+            self.shrink_one();
             return true;
         }
 
@@ -612,7 +617,7 @@ impl ItemStack {
                 .is_some_and(ItemEnchantments::is_empty)
     }
 
-    /// Checks if `ItemStack` has an enchantment
+    /// Checks if `ItemStack` has an enchantment, not including enchanted books
     #[must_use]
     pub fn is_enchanted(&self) -> bool {
         self.get_enchantments().is_some_and(|e| !e.is_empty())

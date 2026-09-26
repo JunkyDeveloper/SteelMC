@@ -46,22 +46,11 @@ impl MemoryPlayerDataStorage {
     }
 
     pub(crate) fn save_global(&self, uuid: Uuid, data: &GlobalPlayerData) {
-        self.state.lock().global_players.insert(
-            uuid,
-            GlobalPlayerData {
-                last_active_domain: data.last_active_domain.clone(),
-            },
-        );
+        self.state.lock().global_players.insert(uuid, data.clone());
     }
 
     pub(crate) fn load_global(&self, uuid: Uuid) -> Option<GlobalPlayerData> {
-        self.state
-            .lock()
-            .global_players
-            .get(&uuid)
-            .map(|data| GlobalPlayerData {
-                last_active_domain: data.last_active_domain.clone(),
-            })
+        self.state.lock().global_players.get(&uuid).cloned()
     }
 
     pub(crate) fn save_permission_subjects(&self, subjects: &PermissionSubjectIndex) {
