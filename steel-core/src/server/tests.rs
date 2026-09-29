@@ -229,6 +229,78 @@ async fn test_server_with_worlds(
     .await
 }
 
+async fn test_server_with_worlds_and_config(
+    default_domain: String,
+    domains: &[ResolvedDomainConfig],
+    loaded_worlds: &[Arc<World>],
+    player_permission_states: PermissionSubjectIndex,
+    config: Arc<RuntimeConfig>,
+) -> Result<Arc<Server>, String> {
+    let mut worlds = WorldMap::new(default_domain, domains, &[]);
+    for world in loaded_worlds {
+        worlds.insert(world.key.clone(), Arc::clone(world));
+    }
+    worlds.validate_game_times()?;
+    let scoreboards = DomainScoreboards::load(&worlds)
+        .await
+        .map_err(|error| format!("test scoreboards should load: {error}"))?;
+    let command_storage = DomainCommandStorage::load(&worlds)
+        .await
+        .map_err(|error| format!("test command storage should load: {error}"))?;
+    let player_data_storage = PlayerDataStorage::in_memory();
+    let registered_commands = create_registered_dispatcher(CommandRegistry::new())
+        .map_err(|error| format!("test commands should register: {error}"))?;
+    let command_permission_keys = registered_commands
+        .permissions
+        .iter()
+        .map(|permission| permission.as_str().to_owned())
+        .collect();
+    let permission_groups = PermissionGroupManager::transient(PermissionGroupsConfig::default())
+        .map_err(|error| format!("test permission groups should resolve: {error}"))?;
+    let registry_cache = RegistryCache::new(config.compression);
+
+    Ok(Arc::new(Server {
+        config,
+        permission_groups,
+        cancel_token: CancellationToken::new(),
+        key_store: KeyStore::create(),
+        registry_cache,
+        worlds,
+        online_players: PlayerMap::new(),
+        player_admissions: SyncMutex::new(FxHashMap::default()),
+        player_admission_changed: Notify::new(),
+        server_tick_changed: Notify::new(),
+        tick_rate_manager: SyncRwLock::new(TickRateManager::new()),
+        scoreboards,
+        command_storage,
+        command_dispatcher: SyncRwLock::new(registered_commands.dispatcher),
+        command_permission_keys,
+        command_requests: CommandRequestQueue::new(),
+        packet_processor: PacketProcessor::new(),
+        chunk_encoding_pool: Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(1)
+                .build()
+                .expect("test chunk encoding pool should initialize"),
+        ),
+        jobs: ServerJobQueue::new(),
+        player_data_storage,
+        player_permission_states: SyncRwLock::new(player_permission_states),
+        player_permission_updates: AsyncMutex::new(()),
+        known_players: SyncMutex::new(KnownPlayerCacheState::new(KnownPlayers::new())),
+        known_player_save_idle: Notify::new(),
+        profile_lookup_client: reqwest::Client::new(),
+        service_keys: Arc::new(
+            ServiceKeyStore::new(None).expect("test services key store should initialize"),
+        ),
+        pending_player_joins: PlayerJoinQueue::new(),
+        pending_player_disconnects: PlayerDisconnectQueue::new(),
+        pending_world_changes: SyncMutex::new(Vec::new()),
+        pending_domain_switches: SyncMutex::new(Vec::new()),
+        player_idle_timeout: AtomicI32::new(0),
+    }))
+}
+
 mod connection_lifecycle;
 mod player_limit;
 
