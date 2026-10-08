@@ -64,8 +64,18 @@ jobs:
           implemented_only = true
           EOF
 
+      - name: Build flint-steel
+        id: build
+        working-directory: flint-steel
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          cargo test --profile cicd --lib --no-run
+          cargo build --profile cicd --bin steel-implemented
+
       - name: Run flint-steel tests
         id: tests
+        if: steps.build.outcome == 'success'
         working-directory: flint-steel
         continue-on-error: true
         timeout-minutes: 15
@@ -76,6 +86,7 @@ jobs:
 
       - name: Dump implemented blocks and items
         id: implemented
+        if: steps.build.outcome == 'success'
         working-directory: flint-steel
         continue-on-error: true
         run: |
