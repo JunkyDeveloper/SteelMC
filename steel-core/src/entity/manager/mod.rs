@@ -354,6 +354,7 @@ pub struct ChunkEntityUnloadStart {
 #[derive(Clone)]
 struct EntityEntry {
     entity: SharedEntity,
+    _damage_history_owner: Arc<()>,
     uuid: Uuid,
     section: SectionPos,
     chunk: ChunkPos,
@@ -369,6 +370,7 @@ impl EntityEntry {
         let chunk = ChunkPos::new(section.x(), section.z());
         let bounding_box = entity.bounding_box();
         Self {
+            _damage_history_owner: entity.base().damage_history().retain_owner(),
             uuid: entity.uuid(),
             entity,
             section,
@@ -461,7 +463,7 @@ struct EntityTickList {
 impl EntityTickList {
     fn add(&mut self, entity: &SharedEntity) -> bool {
         let entity_id = entity.id();
-        if self.active.insert(entity_id, entity.clone()).is_some() {
+        if self.active.insert(entity_id, Arc::clone(entity)).is_some() {
             return false;
         }
         self.order.push(entity_id);
@@ -545,7 +547,7 @@ impl WorldEntityManager {
                     continue;
                 }
 
-                let entity = entry.entity.clone();
+                let entity = Arc::clone(&entry.entity);
                 Self::insert_live_entry(&mut state, entry);
                 let lifecycle = Self::apply_entity_lifecycle_after_insert(&mut state, entity.id());
                 result.tracking_started.extend(lifecycle.tracking_started);
@@ -582,7 +584,7 @@ impl WorldEntityManager {
         entities: &mut Vec<SharedEntity>,
     ) {
         if seen.insert(entity.id()) {
-            entities.push(entity.clone());
+            entities.push(Arc::clone(entity));
         }
     }
 
@@ -681,7 +683,7 @@ impl WorldEntityManager {
                     entry,
                     Self::chunk_visibility(state, entry.chunk),
                 );
-                visibility.is_ticking().then(|| entry.entity.clone())
+                visibility.is_ticking().then(|| Arc::clone(&entry.entity))
             });
             if let Some(entity) = entity_to_tick {
                 state.tick_list.add(&entity);
@@ -849,7 +851,7 @@ impl WorldEntityManager {
     ) -> Option<SharedEntity> {
         let mut state = self.state.write();
         let entry = Self::remove_live_entry(&mut state, entity_id)?;
-        let entity = entry.entity.clone();
+        let entity = Arc::clone(&entry.entity);
 
         if reason.should_save() && entry.should_save() {
             state
@@ -1137,7 +1139,7 @@ impl WorldEntityManager {
             .read()
             .live_by_id
             .get(&entity_id)
-            .map(|entry| entry.entity.clone())
+            .map(|entry| Arc::clone(&entry.entity))
     }
 
     /// Returns true if this exact entity is live or retained for chunk-unload recovery.
@@ -1159,7 +1161,7 @@ impl WorldEntityManager {
     pub fn get_accessible_by_id(&self, entity_id: i32) -> Option<SharedEntity> {
         let state = self.state.read();
         let entry = state.live_by_id.get(&entity_id)?;
-        Self::is_accessible(&state, entry).then(|| entry.entity.clone())
+        Self::is_accessible(&state, entry).then(|| Arc::clone(&entry.entity))
     }
 
     #[must_use]
@@ -1170,7 +1172,7 @@ impl WorldEntityManager {
         state
             .live_by_id
             .get(entity_id)
-            .map(|entry| entry.entity.clone())
+            .map(|entry| Arc::clone(&entry.entity))
     }
 
     #[must_use]
@@ -1393,7 +1395,7 @@ impl WorldEntityManager {
         Self::entity_ids_in_chunk_order(&state, chunk)
             .into_iter()
             .filter_map(|entity_id| state.live_by_id.get(&entity_id))
-            .map(|entry| entry.entity.clone())
+            .map(|entry| Arc::clone(&entry.entity))
             .collect()
     }
 
@@ -1493,12 +1495,12 @@ impl WorldEntityManager {
         };
         let visibility =
             Self::lifecycle_visibility_for(entry, Self::chunk_visibility(state, entry.chunk));
-        let entity = entry.entity.clone();
+        let entity = Arc::clone(&entry.entity);
         let should_tick = visibility.is_ticking();
 
         let mut lifecycle = EntityLifecycleChanges::default();
         if visibility.is_accessible() {
-            lifecycle.tracking_started.push(entity.clone());
+            lifecycle.tracking_started.push(Arc::clone(&entity));
         }
         if should_tick && state.tick_list.add(&entity) {
             lifecycle.ticking_started.push(entity);
@@ -1529,20 +1531,20 @@ impl WorldEntityManager {
                 continue;
             }
 
-            let entity = entry.entity.clone();
+            let entity = Arc::clone(&entry.entity);
             if old_visibility.is_ticking()
                 && !new_visibility.is_ticking()
                 && state.tick_list.remove(entity_id).is_some()
             {
-                lifecycle.ticking_stopped.push(entity.clone());
+                lifecycle.ticking_stopped.push(Arc::clone(&entity));
             }
 
             if old_visibility.is_accessible() && !new_visibility.is_accessible() {
                 state.accessible_order.remove(entity_id);
-                lifecycle.tracking_stopped.push(entity.clone());
+                lifecycle.tracking_stopped.push(Arc::clone(&entity));
             } else if !old_visibility.is_accessible() && new_visibility.is_accessible() {
                 state.accessible_order.insert(entity_id);
-                lifecycle.tracking_started.push(entity.clone());
+                lifecycle.tracking_started.push(Arc::clone(&entity));
             }
 
             if !old_visibility.is_ticking()
@@ -1630,7 +1632,7 @@ impl WorldEntityManager {
     ) {
         snapshot_old_pos_and_rot_for_tick(entity.as_ref());
         entity.advance_tick_count();
-        entity.tick();
+        Arc::clone(entity).tick();
         self.mark_dirty_after_tick(entity, dirty_chunks);
         self.tick_vehicle_passengers_with_ticked(entity.as_ref(), ticked_entities, dirty_chunks);
     }
@@ -1755,7 +1757,7 @@ impl WorldEntityManager {
             "duplicate saveable entity uuid {} in world entity manager",
             entry.uuid
         );
-        result.push(entry.entity.clone());
+        result.push(Arc::clone(&entry.entity));
     }
 
     fn push_unsaved_entity_report(

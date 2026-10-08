@@ -22,6 +22,7 @@ use steel_core::chunk::chunk_status_tasks::ChunkStatusTasks;
 use steel_core::chunk::chunk_ticket_manager::ChunkTicketLevel;
 use steel_core::chunk::section::{ChunkSection, Sections};
 use steel_core::chunk::status::ChunkStatus;
+use steel_core::entity::damage::DamageHistory;
 use steel_core::level_data::{GameTimeSource, WorldGenerationSettings};
 use steel_core::world::{World, WorldConfig, WorldStorageConfig};
 use steel_core::worldgen::generator::generation_benchmark_support;
@@ -530,6 +531,7 @@ struct FeatureFixture {
     cache: Arc<StaticCache2D<Arc<ChunkHolder>>>,
     target: Arc<ChunkHolder>,
     _world: Arc<World>,
+    _damage_history: Arc<DamageHistory>,
 }
 
 fn build_feature_fixture(generator_key: Identifier) -> FeatureFixture {
@@ -567,11 +569,13 @@ fn build_feature_fixture_at(
             .build()
             .expect("feature benchmark generation pool should build"),
     );
+    let damage_history = Arc::new(DamageHistory::default());
     let world_config = WorldConfig {
+        damage_history: Arc::clone(&damage_history),
         game_time_source: GameTimeSource::Primary,
         storage: WorldStorageConfig::RamOnly,
         level_data_path: None,
-        generator: generator.clone(),
+        generator: Arc::clone(&generator),
         generation_settings,
         view_distance: 10,
         simulation_distance: 10,
@@ -585,7 +589,7 @@ fn build_feature_fixture_at(
     let world_key = Identifier::new("bench", format!("{}_features", generator_key.path));
     let world = chunk_runtime
         .block_on(World::new_with_config(
-            chunk_runtime.clone(),
+            Arc::clone(&chunk_runtime),
             world_key,
             dim,
             seed,
@@ -593,22 +597,23 @@ fn build_feature_fixture_at(
             generation_pool,
         ))
         .expect("feature benchmark world should build");
-    let context = world.chunk_map.world_gen_context.clone();
+    let context = Arc::clone(&world.chunk_map.world_gen_context);
 
-    let generator_for_factory = generator.clone();
+    let generator_for_factory = Arc::clone(&generator);
     let cache = Arc::new(StaticCache2D::create(
         center.0.x,
         center.0.y,
         8,
         move |x, z| make_holder_for_features(center, x, z, dim, generator_for_factory.as_ref()),
     ));
-    let target = cache.get(center.0.x, center.0.y).clone();
+    let target = Arc::clone(cache.get(center.0.x, center.0.y));
 
     FeatureFixture {
         context,
         cache,
         target,
         _world: world,
+        _damage_history: damage_history,
     }
 }
 
@@ -618,6 +623,7 @@ struct ConcurrentFeatureFixture {
     targets: Vec<Arc<ChunkHolder>>,
     generation_pool: Arc<rayon::ThreadPool>,
     _world: Arc<World>,
+    _damage_history: Arc<DamageHistory>,
 }
 
 #[derive(Clone, Copy)]
@@ -639,6 +645,7 @@ struct ConcurrentFullPipelineFixture {
     generation_pool: Arc<rayon::ThreadPool>,
     targets: Vec<Arc<ChunkHolder>>,
     _world: Arc<World>,
+    _damage_history: Arc<DamageHistory>,
 }
 
 struct ConcurrentLightFixture {
@@ -650,6 +657,7 @@ struct ConcurrentLightFixture {
     generation_pool: Arc<rayon::ThreadPool>,
     targets: Vec<Arc<ChunkHolder>>,
     _world: Arc<World>,
+    _damage_history: Arc<DamageHistory>,
 }
 
 #[derive(Clone, Copy)]
@@ -789,7 +797,7 @@ fn pipeline_stages_for_statuses(
         .map(|status| {
             let holders = pipeline_positions_for_status(centers, target_step, status)
                 .into_iter()
-                .map(|pos| cache.get(pos.0.x, pos.0.y).clone())
+                .map(|pos| Arc::clone(cache.get(pos.0.x, pos.0.y)))
                 .collect();
 
             FullPipelineStage {
@@ -838,11 +846,13 @@ fn build_concurrent_feature_fixture(
             .build()
             .expect("feature benchmark generation pool should build"),
     );
+    let damage_history = Arc::new(DamageHistory::default());
     let world_config = WorldConfig {
+        damage_history: Arc::clone(&damage_history),
         game_time_source: GameTimeSource::Primary,
         storage: WorldStorageConfig::RamOnly,
         level_data_path: None,
-        generator: generator.clone(),
+        generator: Arc::clone(&generator),
         generation_settings,
         view_distance: 10,
         simulation_distance: 10,
@@ -859,20 +869,20 @@ fn build_concurrent_feature_fixture(
     );
     let world = chunk_runtime
         .block_on(World::new_with_config(
-            chunk_runtime.clone(),
+            Arc::clone(&chunk_runtime),
             world_key,
             dim,
             seed,
             world_config,
-            generation_pool.clone(),
+            Arc::clone(&generation_pool),
         ))
         .expect("feature benchmark world should build");
-    let context = world.chunk_map.world_gen_context.clone();
+    let context = Arc::clone(&world.chunk_map.world_gen_context);
 
     let centers: Arc<[ChunkPos]> = concurrent_feature_centers().into();
     let cache_radius = concurrent_feature_cache_radius(&centers);
-    let generator_for_factory = generator.clone();
-    let centers_for_factory = centers.clone();
+    let generator_for_factory = Arc::clone(&generator);
+    let centers_for_factory = Arc::clone(&centers);
     let cache = Arc::new(StaticCache2D::create(0, 0, cache_radius, move |x, z| {
         make_holder_for_feature_centers(
             &centers_for_factory,
@@ -884,7 +894,7 @@ fn build_concurrent_feature_fixture(
     }));
     let targets = centers
         .iter()
-        .map(|center| cache.get(center.0.x, center.0.y).clone())
+        .map(|center| Arc::clone(cache.get(center.0.x, center.0.y)))
         .collect();
 
     ConcurrentFeatureFixture {
@@ -893,6 +903,7 @@ fn build_concurrent_feature_fixture(
         targets,
         generation_pool,
         _world: world,
+        _damage_history: damage_history,
     }
 }
 
@@ -929,11 +940,13 @@ fn build_concurrent_full_pipeline_fixture(
             .build()
             .expect("full-pipeline benchmark generation pool should build"),
     );
+    let damage_history = Arc::new(DamageHistory::default());
     let world_config = WorldConfig {
+        damage_history: Arc::clone(&damage_history),
         game_time_source: GameTimeSource::Primary,
         storage: WorldStorageConfig::RamOnly,
         level_data_path: None,
-        generator: generator.clone(),
+        generator: Arc::clone(&generator),
         generation_settings,
         view_distance: 10,
         simulation_distance: 10,
@@ -950,18 +963,18 @@ fn build_concurrent_full_pipeline_fixture(
     );
     let world = chunk_runtime
         .block_on(World::new_with_config(
-            chunk_runtime.clone(),
+            Arc::clone(&chunk_runtime),
             world_key,
             dim,
             seed,
             world_config,
-            generation_pool.clone(),
+            Arc::clone(&generation_pool),
         ))
         .expect("full-pipeline benchmark world should build");
-    let chunk_map = world.chunk_map.clone();
+    let chunk_map = Arc::clone(&world.chunk_map);
 
     let cache_radius = concurrent_pipeline_cache_radius(&centers, ChunkStatus::Full);
-    let chunk_map_for_factory = chunk_map.clone();
+    let chunk_map_for_factory = Arc::clone(&chunk_map);
     let cache = Arc::new(StaticCache2D::create(0, 0, cache_radius, move |x, z| {
         let pos = ChunkPos::new(x, z);
         let holder = Arc::new(ChunkHolder::new(
@@ -971,13 +984,13 @@ fn build_concurrent_full_pipeline_fixture(
             dim.min_y,
             dim.height,
         ));
-        chunk_map_for_factory.insert_benchmark_chunk_holder(pos, holder.clone());
+        chunk_map_for_factory.insert_benchmark_chunk_holder(pos, Arc::clone(&holder));
         holder
     }));
     let stages = full_pipeline_stages(&cache, &centers);
     let targets = centers
         .iter()
-        .map(|center| cache.get(center.0.x, center.0.y).clone())
+        .map(|center| Arc::clone(cache.get(center.0.x, center.0.y)))
         .collect();
 
     ConcurrentFullPipelineFixture {
@@ -988,6 +1001,7 @@ fn build_concurrent_full_pipeline_fixture(
         generation_pool,
         targets,
         _world: world,
+        _damage_history: damage_history,
     }
 }
 
@@ -1024,11 +1038,13 @@ fn build_concurrent_light_fixture(
             .build()
             .expect("light benchmark generation pool should build"),
     );
+    let damage_history = Arc::new(DamageHistory::default());
     let world_config = WorldConfig {
+        damage_history: Arc::clone(&damage_history),
         game_time_source: GameTimeSource::Primary,
         storage: WorldStorageConfig::RamOnly,
         level_data_path: None,
-        generator: generator.clone(),
+        generator: Arc::clone(&generator),
         generation_settings,
         view_distance: 10,
         simulation_distance: 10,
@@ -1042,18 +1058,18 @@ fn build_concurrent_light_fixture(
     let world_key = Identifier::new("bench", format!("{}_light_concurrent", generator_key.path));
     let world = chunk_runtime
         .block_on(World::new_with_config(
-            chunk_runtime.clone(),
+            Arc::clone(&chunk_runtime),
             world_key,
             dim,
             seed,
             world_config,
-            generation_pool.clone(),
+            Arc::clone(&generation_pool),
         ))
         .expect("light benchmark world should build");
-    let chunk_map = world.chunk_map.clone();
+    let chunk_map = Arc::clone(&world.chunk_map);
 
     let cache_radius = concurrent_pipeline_cache_radius(&centers, ChunkStatus::Light);
-    let chunk_map_for_factory = chunk_map.clone();
+    let chunk_map_for_factory = Arc::clone(&chunk_map);
     let cache = Arc::new(StaticCache2D::create(0, 0, cache_radius, move |x, z| {
         let pos = ChunkPos::new(x, z);
         let holder = Arc::new(ChunkHolder::new(
@@ -1063,7 +1079,7 @@ fn build_concurrent_light_fixture(
             dim.min_y,
             dim.height,
         ));
-        chunk_map_for_factory.insert_benchmark_chunk_holder(pos, holder.clone());
+        chunk_map_for_factory.insert_benchmark_chunk_holder(pos, Arc::clone(&holder));
         holder
     }));
     let setup_stages =
@@ -1073,12 +1089,12 @@ fn build_concurrent_light_fixture(
         step: target_step,
         holders: pipeline_positions_for_status(&centers, target_step, ChunkStatus::Light)
             .into_iter()
-            .map(|pos| cache.get(pos.0.x, pos.0.y).clone())
+            .map(|pos| Arc::clone(cache.get(pos.0.x, pos.0.y)))
             .collect(),
     };
     let targets = centers
         .iter()
-        .map(|center| cache.get(center.0.x, center.0.y).clone())
+        .map(|center| Arc::clone(cache.get(center.0.x, center.0.y)))
         .collect();
 
     let fixture = ConcurrentLightFixture {
@@ -1090,6 +1106,7 @@ fn build_concurrent_light_fixture(
         generation_pool,
         targets,
         _world: world,
+        _damage_history: damage_history,
     };
     run_concurrent_light_setup(&fixture);
     fixture
@@ -1113,9 +1130,9 @@ fn bench_overworld_features_concurrent_overlap(c: &mut Criterion) {
                 } else {
                     fixture.generation_pool.scope(|scope| {
                         for target in &fixture.targets {
-                            let context = fixture.context.clone();
-                            let cache = fixture.cache.clone();
-                            let target = target.clone();
+                            let context = Arc::clone(&fixture.context);
+                            let cache = Arc::clone(&fixture.cache);
+                            let target = Arc::clone(target);
                             scope.spawn(move |_| {
                                 ChunkStatusTasks::generate_features(context, step, &cache, target);
                             });
@@ -1247,10 +1264,10 @@ fn run_concurrent_feature_batch_profiled(fixture: ConcurrentFeatureFixture, step
     let batch_started_at = Instant::now();
     fixture.generation_pool.scope(|scope| {
         for target in &fixture.targets {
-            let context = fixture.context.clone();
-            let cache = fixture.cache.clone();
-            let target = target.clone();
-            let task_times = task_times.clone();
+            let context = Arc::clone(&fixture.context);
+            let cache = Arc::clone(&fixture.cache);
+            let target = Arc::clone(target);
+            let task_times = Arc::clone(&task_times);
             scope.spawn(move |_| {
                 let pos = target.get_pos();
                 let started_at = Instant::now();
@@ -1428,7 +1445,7 @@ fn run_pipeline_stage(
             .holders
             .iter()
             .filter_map(|holder| {
-                holder.apply_step(stage.step, chunk_map, cache, generation_pool.clone())
+                holder.apply_step(stage.step, chunk_map, cache, Arc::clone(generation_pool))
             })
             .collect::<Vec<_>>();
 
@@ -1622,18 +1639,18 @@ fn build_references_fixture(
 ) {
     let generator_arc = Arc::new(generator);
     let context = Arc::new(WorldGenContext::new(
-        generator_arc.clone(),
+        Arc::clone(&generator_arc),
         Weak::new(),
         dim.min_y,
         dim.height,
         63, // overworld sea level (bench is overworld)
     ));
 
-    let gen_for_factory = generator_arc.clone();
+    let gen_for_factory = Arc::clone(&generator_arc);
     let cache = Arc::new(StaticCache2D::create(0, 0, 8, move |x, z| {
         make_holder_with_starts(x, z, dim, &gen_for_factory)
     }));
-    let target = cache.get(0, 0).clone();
+    let target = Arc::clone(cache.get(0, 0));
     (context, cache, target)
 }
 
@@ -1655,10 +1672,10 @@ fn bench_references(c: &mut Criterion, name: &str, context_fixture: ReferencesFi
             },
             |()| {
                 ChunkStatusTasks::generate_structure_references(
-                    context.clone(),
+                    Arc::clone(&context),
                     &step,
                     &cache,
-                    target.clone(),
+                    Arc::clone(&target),
                 );
             },
             criterion::BatchSize::SmallInput,
