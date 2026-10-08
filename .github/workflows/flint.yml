@@ -9,6 +9,10 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Flint adapter pin. A Steel PR that breaks flint-steel may point this at its adapter fix
+  # (fork + branch/sha); it must be back on a FlintTestMC/flint-steel tag before merge.
+  FLINT_STEEL_REPO: FlintTestMC/flint-steel
+  FLINT_STEEL_REF: v1.2.2
 
 jobs:
   test:
@@ -22,8 +26,8 @@ jobs:
       - name: Checkout flint-steel
         uses: actions/checkout@v4
         with:
-          repository: FlintTestMC/flint-steel
-          ref: v1.2.2
+          repository: ${{ env.FLINT_STEEL_REPO }}
+          ref: ${{ env.FLINT_STEEL_REF }}
           path: flint-steel
 
       - name: Clone FlintBenchmark
@@ -254,3 +258,12 @@ jobs:
         with:
           name: flint-summary
           path: flint-steel/log/flint_summary.json
+
+      - name: Check flint-steel pin is a release
+        if: always()
+        run: |
+          if [ "$FLINT_STEEL_REPO" != "FlintTestMC/flint-steel" ] \
+            || ! git ls-remote --exit-code --tags "https://github.com/$FLINT_STEEL_REPO" "refs/tags/$FLINT_STEEL_REF" > /dev/null; then
+            echo "::error::flint-steel pin is $FLINT_STEEL_REPO@$FLINT_STEEL_REF; merge the flint-steel PR, tag it, and pin FlintTestMC/flint-steel@<tag> before merging"
+            exit 1
+          fi
