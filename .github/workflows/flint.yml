@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: FlintTestMC/flint-steel
-          ref: v1.2.0
+          ref: v1.2.1
           path: flint-steel
 
       - name: Clone FlintBenchmark
@@ -50,7 +50,7 @@ jobs:
           mkdir -p .cargo
           cat > .cargo/config.toml << 'EOF'
           [patch."https://github.com/Steel-Foundation/SteelMC.git"]
-          steel-core     = { path = "../SteelMC/steel-core", features = ["flint"] }
+          steel-core     = { path = "../SteelMC/steel-core", features = ["test-framework"] }
           steel-protocol = { path = "../SteelMC/steel-protocol" }
           steel-registry = { path = "../SteelMC/steel-registry" }
           steel-utils    = { path = "../SteelMC/steel-utils" }
@@ -62,12 +62,6 @@ jobs:
           cat > flint.toml << 'EOF'
           [filter]
           implemented_only = true
-
-          # [filter.tags]
-          # redstone = true
-          # walls = false
-          # fence = true
-
           EOF
 
       - name: Run flint-steel tests
@@ -80,6 +74,15 @@ jobs:
           FLINT_VIZ_URL: "https://flint-viz.jonasbauer.org"
         run: cargo test --profile cicd --lib test_run_flint_selected -- --nocapture
 
+      - name: Dump implemented blocks and items
+        id: implemented
+        working-directory: flint-steel
+        continue-on-error: true
+        run: |
+          { cargo run -q --profile cicd --bin steel-implemented -- blocks
+            cargo run -q --profile cicd --bin steel-implemented -- items; } | LC_ALL=C sort -u > ../implemented.txt
+          echo "$(wc -l < ../implemented.txt) implemented ids"
+
       - name: Download baseline
         id: baseline
         uses: dawidd6/action-download-artifact@v6
@@ -90,8 +93,20 @@ jobs:
           workflow: flint.yml
           path: baseline
 
+      - name: Download master implemented ids
+        if: github.event_name == 'pull_request'
+        uses: dawidd6/action-download-artifact@v6
+        continue-on-error: true
+        with:
+          name: flint-implemented
+          branch: master
+          workflow: flint.yml
+          path: baseline
+
       - name: Check for regressions
         id: regression
+        # TODO delete later so it will fail if regression are there
+        continue-on-error: true
         run: |
           SUMMARY="flint-steel/log/flint_summary.json"
           BASELINE="baseline/flint_baseline.json"
@@ -113,6 +128,7 @@ jobs:
             '($base[0] | map(select(.success == true)) | map(.name)) as $required |
               [$curr[0][] | select(.success == false and IN(.name; $required[]))] |
               map(.name)')
+          echo "$REGRESSIONS" > regressions.json
 
           if [ "$REGRESSIONS" != "[]" ]; then
             echo "::error::Regressions detected: $REGRESSIONS"
@@ -123,6 +139,67 @@ jobs:
           fi
 
           echo "No regressions detected"
+
+      - name: Build PR report
+        if: always() && github.event_name == 'pull_request'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          SUMMARY="flint-steel/log/flint_summary.json"
+          BASE_IMPL="baseline/implemented.txt"
+          mkdir -p report
+          echo "$PR_NUMBER" > report/pr_number.txt
+          OUT=report/comment.md
+
+          echo "<!-- flint-report -->" > "$OUT"
+          echo "## Flint test report" >> "$OUT"
+          echo >> "$OUT"
+
+          if [ ! -f "$SUMMARY" ]; then
+            echo ":x: No \`flint_summary.json\` produced — flint-steel likely failed to compile. See the [workflow run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)." >> "$OUT"
+            exit 0
+          fi
+
+          jq -r '"**Implemented tests:** \(length) total, \(map(select(.success)) | length) passed, \(map(select(.success | not)) | length) failed"' "$SUMMARY" >> "$OUT"
+          echo >> "$OUT"
+
+          echo "### Regressions" >> "$OUT"
+          if [ -f regressions.json ]; then
+            jq -r 'if length == 0 then "None :white_check_mark:" else map("- :x: `\(.)`") | join("\n") end' regressions.json >> "$OUT"
+          else
+            echo "No master baseline yet — skipped." >> "$OUT"
+          fi
+          echo >> "$OUT"
+
+          echo "### Newly implemented blocks/items" >> "$OUT"
+          if [ ! -f implemented.txt ] || [ ! -f "$BASE_IMPL" ]; then
+            echo "No implemented-id list for this run or master yet — skipped." >> "$OUT"
+          else
+            NEW=$(LC_ALL=C comm -23 implemented.txt "$BASE_IMPL" | jq -R . | jq -sc .)
+            if [ "$NEW" = "[]" ]; then
+              echo "None." >> "$OUT"
+            else
+              jq -r --argjson new "$NEW" '
+                [.[] | select(any(.ids[]; IN(.; $new[])))] as $t |
+                ($t | map(select(.success | not)) | map(.name)) as $failed |
+                "`" + ($new | join("`, `")) + "`\n",
+                "**\($t | length) tests**, \($t | map(select(.success)) | length) passed, \($failed | length) failed",
+                (if ($failed | length) > 0 then "\nFailed:\n" + ($failed | map("- :x: `\(.)`") | join("\n")) else empty end),
+                (if ($t | length) == 0 then "\n:warning: No Flint tests cover these ids yet." else empty end)
+              ' "$SUMMARY" >> "$OUT"
+            fi
+          fi
+
+          echo >> "$OUT"
+          echo "<sub>[Workflow run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) · failure links to flint-viz are in the test log</sub>" >> "$OUT"
+          cat "$OUT"
+
+      - name: Upload PR report
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: flint-pr-report
+          path: report/
 
       - name: Merge and upload baseline
         if: github.ref == 'refs/heads/master' && steps.regression.outcome == 'success'
@@ -152,6 +229,13 @@ jobs:
         with:
           name: flint-baseline
           path: flint_baseline.json
+
+      - name: Upload implemented ids
+        if: github.ref == 'refs/heads/master' && steps.implemented.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: flint-implemented
+          path: implemented.txt
 
       - name: Upload Flint summary
         if: always()
