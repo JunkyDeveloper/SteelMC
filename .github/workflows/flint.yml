@@ -95,7 +95,8 @@ jobs:
         continue-on-error: true
         run: |
           { cargo run -q --profile cicd --bin steel-implemented -- blocks
-            cargo run -q --profile cicd --bin steel-implemented -- items; } | LC_ALL=C sort -u > ../implemented.txt
+            cargo run -q --profile cicd --bin steel-implemented -- items
+            cargo run -q --profile cicd --bin steel-implemented -- entities; } | LC_ALL=C sort -u > ../implemented.txt
           echo "$(wc -l < ../implemented.txt) implemented ids"
 
       - name: Download baseline
