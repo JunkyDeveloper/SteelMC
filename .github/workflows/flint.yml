@@ -163,6 +163,20 @@ jobs:
 
           echo "No regressions detected"
 
+      - name: Warn on non-blocking regression failure
+        if: steps.regression.outcome == 'failure'
+        run: |
+          MSG="Flint regression check failed but is not blocking yet (continue-on-error)."
+          if [ -f regressions.json ] && [ "$(cat regressions.json)" != "[]" ]; then
+            MSG="$MSG Regressions: $(jq -r 'join(", ")' regressions.json)"
+          fi
+          echo "::warning title=Flint regressions::$MSG"
+          {
+            echo "## :warning: Flint regression check failed (non-blocking)"
+            echo
+            echo "$MSG"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Build PR report
         if: always() && github.event_name == 'pull_request'
         env:
