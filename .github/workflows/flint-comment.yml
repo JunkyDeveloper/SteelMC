@@ -36,9 +36,17 @@ jobs:
               core.setFailed("Invalid PR number in artifact");
               return;
             }
+            const { owner, repo } = context.repo;
+
+            // The artifact is untrusted: only post if that PR's head is the commit this run tested.
+            const run = context.payload.workflow_run;
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: issue_number });
+            if (pr.head.sha !== run.head_sha) {
+              core.warning(`Skipping comment: PR #${issue_number} head ${pr.head.sha} does not match run head ${run.head_sha}`);
+              return;
+            }
             const MARKER = "<!-- flint-report -->";
             const body = fs.readFileSync("comment.md", "utf8").slice(0, 65000);
-            const { owner, repo } = context.repo;
 
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner, repo, issue_number,

@@ -114,6 +114,8 @@ jobs:
           name: flint-baseline
           branch: master
           workflow: flint.yml
+          # Use the newest master run that actually has the artifact, not just the newest green run.
+          search_artifacts: true
           path: baseline
 
       - name: Download master implemented ids
@@ -124,6 +126,8 @@ jobs:
           name: flint-implemented
           branch: master
           workflow: flint.yml
+          # Use the newest master run that actually has the artifact, not just the newest green run.
+          search_artifacts: true
           path: baseline
 
       - name: Check for regressions
@@ -144,20 +148,19 @@ jobs:
             exit 0
           fi
 
-          # Find tests that passed in baseline but fail now
-          REGRESSIONS=$(jq -n \
+          # Tests that passed in baseline but now fail or are missing from the results
+          jq -n \
             --slurpfile base "$BASELINE" \
             --slurpfile curr "$SUMMARY" \
-            '($base[0] | map(select(.success == true)) | map(.name)) as $required |
-              [$curr[0][] | select(.success == false and IN(.name; $required[]))] |
-              map(.name)')
-          echo "$REGRESSIONS" > regressions.json
+            '($base[0] | map(select(.success == true)) | map(.name) | unique) as $required |
+              ($curr[0] | map(.name)) as $present |
+              ($curr[0] | map(select(.success == true)) | map(.name)) as $passed |
+              $required | map(select(IN(.; $passed[]) | not)) |
+              map({name: ., missing: (IN(.; $present[]) | not)})' > regressions.json
 
-          if [ "$REGRESSIONS" != "[]" ]; then
-            echo "::error::Regressions detected: $REGRESSIONS"
-            echo "$REGRESSIONS" | jq -r '.[]' | while read -r name; do
-              echo "  - $name"
-            done
+          if [ "$(jq length regressions.json)" != "0" ]; then
+            echo "::error::Regressions detected: $(jq -c 'map(.name)' regressions.json)"
+            jq -r '.[] | "  - \(.name)\(if .missing then " (missing from results)" else "" end)"' regressions.json
             exit 1
           fi
 
@@ -167,8 +170,8 @@ jobs:
         if: steps.regression.outcome == 'failure'
         run: |
           MSG="Flint regression check failed but is not blocking yet (continue-on-error)."
-          if [ -f regressions.json ] && [ "$(cat regressions.json)" != "[]" ]; then
-            MSG="$MSG Regressions: $(jq -r 'join(", ")' regressions.json)"
+          if [ -f regressions.json ] && [ "$(jq length regressions.json)" != "0" ]; then
+            MSG="$MSG Regressions: $(jq -r 'map(.name) | join(", ")' regressions.json)"
           fi
           echo "::warning title=Flint regressions::$MSG"
           {
@@ -202,7 +205,7 @@ jobs:
 
           echo "### Regressions" >> "$OUT"
           if [ -f regressions.json ]; then
-            jq -r 'if length == 0 then "None :white_check_mark:" else map("- :x: `\(.)`") | join("\n") end' regressions.json >> "$OUT"
+            jq -r 'if length == 0 then "None :white_check_mark:" else map("- :x: `\(.name)`\(if .missing then " (missing from results)" else "" end)") | join("\n") end' regressions.json >> "$OUT"
           else
             echo "No master baseline yet — skipped." >> "$OUT"
           fi
