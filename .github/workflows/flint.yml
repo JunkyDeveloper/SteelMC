@@ -12,7 +12,7 @@ env:
   # Flint adapter pin. A Steel PR that breaks flint-steel may point this at its adapter fix
   # (fork + branch/sha); it must be back on a FlintTestMC/flint-steel tag before merge.
   FLINT_STEEL_REPO: FlintTestMC/flint-steel
-  FLINT_STEEL_REF: v1.2.3
+  FLINT_STEEL_REF: v1.2.4
 
 jobs:
   test:
