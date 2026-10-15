@@ -288,7 +288,7 @@ fn noise_parameters_token(value: &Value) -> TokenStream {
     let amplitudes = parameters
         .get("amplitudes")
         .and_then(Value::as_array)
-        .map(|values| {
+        .map_or_default(|values| {
             values
                 .iter()
                 .map(|value| {
@@ -297,8 +297,7 @@ fn noise_parameters_token(value: &Value) -> TokenStream {
                         .unwrap_or_else(|| panic!("amplitude must be a number"))
                 })
                 .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+        });
     let noise_parameters = path("TransformNoiseParameters");
     quote! {
         #noise_parameters { first_octave: #first_octave, amplitudes: vec![#(#amplitudes),*] }
