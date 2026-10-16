@@ -285,6 +285,72 @@ pub struct Player {
     last_action_time: SyncMutex<Instant>,
 }
 
+// Manual auto-trait impls end `Send`/`Sync` proofs at `Player`. Without them, proofs through
+// the connection/session/player type graph exceed the default recursion limit.
+// SAFETY: every field is `Send + Sync`, enforced at compile time by `assert_fields_send_sync`.
+unsafe impl Send for Player {}
+// SAFETY: see the `Send` impl above.
+unsafe impl Sync for Player {}
+
+const _: () = {
+    const fn assert_send_sync<T: Send + Sync + ?Sized>(_: &T) {}
+
+    macro_rules! assert_fields_send_sync {
+        ($($field:ident),* $(,)?) => {
+            #[expect(dead_code, reason = "compile-time Send/Sync check of every Player field")]
+            fn assert_fields_send_sync(player: &Player) {
+                // Exhaustive destructuring: adding a field without listing it here fails to compile.
+                let Player { $($field),* } = player;
+                $(assert_send_sync($field);)*
+            }
+        };
+    }
+
+    assert_fields_send_sync!(
+        gameprofile,
+        connection,
+        session,
+        world,
+        server,
+        config,
+        base,
+        lifecycle,
+        movement,
+        entity_data,
+        last_chunk_pos,
+        last_tracking_view,
+        client_information,
+        game_modes,
+        inventory,
+        inventory_sync,
+        ender_chest_inventory,
+        last_item_in_main_hand,
+        inventory_menu,
+        open_menu,
+        container_counter,
+        teleport_state,
+        item_cooldowns,
+        tick_state,
+        sleep_state,
+        respawn_config,
+        abilities,
+        block_breaking,
+        living_base,
+        food_data,
+        health_sync,
+        experience,
+        permissions,
+        seen_credits,
+        won_game,
+        chunk_send_epoch,
+        residence,
+        ender_pearls,
+        fishing,
+        stats,
+        last_action_time
+    );
+};
+
 // SAFETY: This key is owned by Steel and uniquely identifies `Player`.
 unsafe impl DowncastType for Player {
     const TYPE_KEY: DowncastTypeKey = DowncastTypeKey::new("steel:entity/player");

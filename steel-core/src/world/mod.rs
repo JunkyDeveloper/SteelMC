@@ -314,6 +314,65 @@ pub struct World {
     pending_world_changes: SyncMutex<Vec<(SharedEntity, WorldChangeRequest)>>,
 }
 
+// Manual auto-trait impls end `Send`/`Sync` proofs at `World`. Without them, proofs through
+// the World/chunk/block-entity type graph exceed the default recursion limit.
+// SAFETY: every field is `Send + Sync`, enforced at compile time by `assert_fields_send_sync`.
+unsafe impl Send for World {}
+// SAFETY: see the `Send` impl above.
+unsafe impl Sync for World {}
+
+const _: () = {
+    const fn assert_send_sync<T: Send + Sync + ?Sized>(_: &T) {}
+
+    macro_rules! assert_fields_send_sync {
+        ($($field:ident),* $(,)?) => {
+            #[expect(dead_code, reason = "compile-time Send/Sync check of every World field")]
+            fn assert_fields_send_sync(world: &World) {
+                // Exhaustive destructuring: adding a field without listing it here fails to compile.
+                let World { $($field),* } = world;
+                $(assert_send_sync($field);)*
+            }
+        };
+    }
+
+    assert_fields_send_sync!(
+        damage_history,
+        chunk_map,
+        players,
+        player_area_map,
+        key,
+        dimension_type,
+        level_data,
+        game_time,
+        saved_data,
+        world_border,
+        sleep_status,
+        view_distance,
+        simulation_distance,
+        compression,
+        is_flat,
+        sea_level,
+        default_gamemode,
+        tick_runs_normally,
+        handling_tick,
+        block_events,
+        neighbor_updater,
+        entity_manager,
+        domain_entity_directory,
+        block_entity_tickers,
+        game_event_listener_count,
+        entity_tracker,
+        navigating_mobs,
+        weather,
+        redstone_torch_toggles,
+        scheduled_ticks,
+        scheduled_block_ticks_this_tick,
+        scheduled_fluid_ticks_this_tick,
+        poi_storage,
+        pending_world_changes
+    );
+};
+
 impl World {
     /// Creates a new world with custom configuration.
     ///
