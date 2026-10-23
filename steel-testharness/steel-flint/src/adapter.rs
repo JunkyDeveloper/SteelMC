@@ -4,18 +4,19 @@
 //! allowing the Flint testing framework to create test worlds using the real steel-core
 //! World implementation.
 
+use crate::world::SteelTestWorld;
+use dotenvy::dotenv;
+use flint_core::results::TestSummary;
+use flint_core::{FlintAdapter, FlintWorld, ServerInfo, TestLoader};
+use serde::Deserialize;
 use std::env::var;
 use std::fs;
+use std::io;
 use std::path::PathBuf;
-use dotenvy::dotenv;
-use crate::world::SteelTestWorld;
-use flint_core::{FlintAdapter, FlintWorld, ServerInfo, TestLoader};
-use flint_core::results::TestSummary;
-use serde::Deserialize;
-use toml::from_str;
 use steel_core::behavior::{BLOCK_BEHAVIORS, ITEM_BEHAVIORS};
 use steel_core::entity::ENTITIES;
 use steel_registry::{REGISTRY, RegistryExt};
+use toml::from_str;
 
 /// Adapter for running Flint tests against `SteelMC`.
 ///
@@ -59,26 +60,29 @@ impl FlintAdapter for SteelAdapter {
 
 /// Returns IDs of blocks with a non-default behavior.
 pub fn get_implemented_blocks() -> Vec<String> {
-    let mut registered_block_ids: Vec<String> = Vec::new();
-    for (id, behavior) in BLOCK_BEHAVIORS.get_behaviors().iter().enumerate() {
-        if !behavior.type_name().ends_with("DefaultBlockBehavior") {
-            registered_block_ids.push(REGISTRY.blocks.by_id(id).unwrap().key.to_string());
-        }
-    }
-    registered_block_ids
+    BLOCK_BEHAVIORS
+        .get_behaviors()
+        .iter()
+        .enumerate()
+        .filter(|(_, behavior)| !behavior.type_name().ends_with("DefaultBlockBehavior"))
+        .filter_map(|(id, _)| REGISTRY.blocks.by_id(id))
+        .map(|block| block.key.to_string())
+        .collect()
 }
 
 /// Returns IDs of items with a non-default, non-block-item behavior.
 pub fn get_implemented_items() -> Vec<String> {
-    let mut registered_block_ids: Vec<String> = Vec::new();
-    for (id, behavior) in ITEM_BEHAVIORS.get_behaviors().iter().enumerate() {
-        if !behavior.type_name().ends_with("DefaultItemBehavior")
-            && !behavior.type_name().ends_with("BlockItem")
-        {
-            registered_block_ids.push(REGISTRY.items.by_id(id).unwrap().key.to_string());
-        }
-    }
-    registered_block_ids
+    ITEM_BEHAVIORS
+        .get_behaviors()
+        .iter()
+        .enumerate()
+        .filter(|(_, behavior)| {
+            let name = behavior.type_name();
+            !name.ends_with("DefaultItemBehavior") && !name.ends_with("BlockItem")
+        })
+        .filter_map(|(id, _)| REGISTRY.items.by_id(id))
+        .map(|item| item.key.to_string())
+        .collect()
 }
 
 /// Returns IDs of items with a non-default, non-block-item behavior.
@@ -90,9 +94,9 @@ pub fn get_implemented_entities() -> Vec<String> {
     registered_entity_ids
 }
 
-
+/// Flint run settings loaded from `flint.toml`.
 #[derive(Deserialize, Default)]
-struct FlintConfig {
+pub struct FlintConfig {
     filter: Option<FilterConfig>,
     /// Base URL of the flint-viz instance to embed in failure URLs.
     /// Priority: `FLINT_VIZ_URL` env var > toml `viz_url` > default.
@@ -108,20 +112,24 @@ struct FilterConfig {
     pattern: Option<String>,
 }
 
-fn load_config() -> FlintConfig {
+/// Loads `flint.toml` from the working directory, falling back to defaults if it is missing or invalid.
+#[must_use]
+pub fn load_config() -> FlintConfig {
     fs::read_to_string("flint.toml")
         .ok()
         .and_then(|s| from_str(&s).ok())
         .unwrap_or_default()
 }
 
-fn init_env() {
+/// Loads environment variables from `.env`, if present.
+pub fn init_env() {
     dotenv().ok();
 }
 
 /// Collects test file paths based on environment variables and `flint.toml`.
 /// Priority: `FLINT_TEST` > `FLINT_PATTERN` > `FLINT_TAGS` > `implemented_only` > `filter.tags` > all
-fn collect_filtered_paths(loader: &TestLoader, cfg: &FlintConfig) -> Vec<PathBuf> {
+#[must_use]
+pub fn collect_filtered_paths(loader: &TestLoader, cfg: &FlintConfig) -> Vec<PathBuf> {
     let filter = cfg.filter.as_ref();
 
     // Single test by name: env > toml
@@ -160,7 +168,8 @@ fn collect_filtered_paths(loader: &TestLoader, cfg: &FlintConfig) -> Vec<PathBuf
                 filter.and_then(|f| {
                     f.tags.as_ref().map(|map| {
                         map.iter()
-                            .filter_map(|(k, &v)| v.then(|| k.clone()))
+                            .filter(|&(_, &enabled)| enabled)
+                            .map(|(tag, _)| tag.clone())
                             .collect()
                     })
                 })
@@ -207,14 +216,16 @@ fn matches_pattern(name: &str, pattern: &str) -> bool {
     }
     name == pattern
 }
-fn save_summary(summary: &TestSummary) {
+
+/// Writes the CI summary to `log/flint_summary.json`.
+pub fn save_summary(summary: &TestSummary) -> io::Result<()> {
     let path = PathBuf::from("log/flint_summary.json");
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("Folder can't be created stopped");
+        fs::create_dir_all(parent)?;
     }
-    fs::write(&path, summary.create_ci_output(true))
-        .expect("failed to write flint_summary.json");
+    fs::write(&path, summary.create_ci_output(true))?;
     println!("Summary saved to {}", path.display());
+    Ok(())
 }
 
 fn resolve_viz_base_url(cfg: &FlintConfig) -> String {
@@ -228,7 +239,7 @@ fn resolve_viz_base_url(cfg: &FlintConfig) -> String {
 /// the failing assertion(s) + inline `TestSpec` baked in. Designed to land
 /// directly below the failure tree so terminal emulators (and PR-comment
 /// renderers) auto-link it.
-fn print_failure_urls(
+pub fn print_failure_urls(
     specs: &[flint_core::TestSpecLoadResult],
     paths: &[PathBuf],
     summary: &TestSummary,
@@ -240,8 +251,7 @@ fn print_failure_urls(
     let base = resolve_viz_base_url(cfg);
     let mut emitted = false;
     // specs/paths/results run in lockstep — `run_tests` preserves order.
-    for ((load_result, path), result) in
-        specs.iter().zip(paths.iter()).zip(summary.results.iter())
+    for ((load_result, path), result) in specs.iter().zip(paths.iter()).zip(summary.results.iter())
     {
         if result.success || result.skipped {
             continue;
@@ -285,18 +295,12 @@ fn print_failure_urls(
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::init_test_registries;
     use crate::{TestLoader, TestRunner};
-    use dotenvy::dotenv;
-    use flint_core::results::TestSummary;
     use flint_core::utils::get_test_path;
-    use std::env::var;
-    use std::fs;
-    use std::path::PathBuf;
     use std::sync::Arc;
 
     #[test]
@@ -310,7 +314,9 @@ mod tests {
         let loader = TestLoader::new(&test_path, true)
             .unwrap_or_else(|e| panic!("error while loading test files: {e}"));
         let paths = collect_filtered_paths(&loader, &cfg);
-        let specs = loader.load_specs(&paths, false).unwrap();
+        let specs = loader
+            .load_specs(&paths, false)
+            .unwrap_or_else(|e| panic!("error while loading test specs: {e}"));
 
         // Create adapter and runner
         let adapter = SteelAdapter::new();
@@ -319,7 +325,7 @@ mod tests {
         // Run the test
         let summary = runner.run_tests(&specs);
         summary.print_concise_summary();
-        save_summary(&summary);
+        save_summary(&summary).unwrap_or_else(|e| panic!("failed to save flint summary: {e}"));
         print_failure_urls(&specs, &paths, &summary, &cfg);
         assert_eq!(summary.failed_tests, 0, "Not all flint tests passed!");
     }
@@ -348,13 +354,15 @@ mod tests {
 
         println!("Found {} test(s) to run", paths.len());
 
-        let specs = loader.load_specs(&paths, false).unwrap();
+        let specs = loader
+            .load_specs(&paths, false)
+            .unwrap_or_else(|e| panic!("error while loading test specs: {e}"));
 
         let adapter = SteelAdapter::new();
         let runner = TestRunner::new(Arc::new(adapter));
         let summary = runner.run_tests(&specs);
         summary.print_concise_summary();
-        save_summary(&summary);
+        save_summary(&summary).unwrap_or_else(|e| panic!("failed to save flint summary: {e}"));
         print_failure_urls(&specs, &paths, &summary, &load_config());
         assert_eq!(summary.failed_tests, 0, "No tests were run");
     }

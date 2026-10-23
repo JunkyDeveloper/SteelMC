@@ -44,11 +44,11 @@ pub fn state_id_to_block(state_id: BlockStateId) -> Block {
         return Block::new("minecraft:air");
     };
 
-    let mut id = format!("minecraft:{}", block.key.path);
-
-    if block.key.path == "void_air" || block.key.path == "cave_air" {
-        id = "minecraft:air".to_owned();
-    }
+    let id = if block.key.path == "void_air" || block.key.path == "cave_air" {
+        "minecraft:air".to_owned()
+    } else {
+        format!("minecraft:{}", block.key.path)
+    };
 
     // Get properties from the registry
     let props = REGISTRY.blocks.properties(state_id);

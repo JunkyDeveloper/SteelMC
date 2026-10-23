@@ -6,13 +6,6 @@ license.workspace = true
 authors = ["Jonas Bauer"]
 description = "Flint testing framework integration for SteelMC"
 
-[profile.flint]
-inherits = "dev"
-debug = true
-
-[profile.cicd]
-inherits = "release"
-
 [dependencies]
 # Internal crates
 steel-core = { workspace = true, features = ["test-framework"] }
@@ -49,9 +42,8 @@ rustc-hash.workspace = true
 dotenvy = "0.15.7"
 toml.workspace = true
 anyhow.workspace = true
+serde.workspace = true
 
-[dev-dependencies]
-serde = { version = "1", features = ["derive"] }
 
 [lints.rust]
 missing_docs = "warn"

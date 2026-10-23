@@ -155,6 +155,12 @@ debug = true
 inherits = "dev"
 debug = true
 
+[profile.cicd]
+inherits = "release"
+lto = false
+codegen-units = 16
+panic = "unwind"
+
 [profile.bench]
 debug = true
 

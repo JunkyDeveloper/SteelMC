@@ -4,6 +4,7 @@
 //! configured with RAM-only storage for instant chunk creation without disk I/O.
 
 use std::io::Cursor;
+use std::mem;
 use std::slice;
 use std::sync::{
     Arc,
@@ -34,6 +35,8 @@ use steel_utils::locks::SyncMutex;
 use steel_utils::nbt::{parse_snbt_compound, to_canonical_snbt};
 use steel_utils::types::{Difficulty, GameType};
 use steel_utils::{BlockPos, ChunkPos, types::UpdateFlags};
+use toml::Value;
+use toml::value::Table;
 
 use crate::convert::{flint_block_to_state_id, flint_pos_to_steel, state_id_to_block};
 use crate::player::SteelTestPlayer;
@@ -86,7 +89,7 @@ impl SteelTestWorld {
             generator: Arc::new(ChunkGeneratorType::Empty(EmptyChunkGenerator::new())),
             generation_settings: WorldGenerationSettings {
                 generator: Identifier::new("steel", "empty"),
-                config: toml::Value::Table(toml::value::Table::new()),
+                config: Value::Table(Table::new()),
                 dimension_type: dim_id.clone(),
                 min_y: OVERWORLD.min_y,
                 height: OVERWORLD.height,
@@ -216,9 +219,10 @@ impl SteelTestWorld {
                 ChunkRequestState::Pending { .. } => thread::sleep(Duration::from_millis(1)),
             }
         }
-        if handle.poll() != ChunkRequestState::Ready {
-            panic!("chunk {chunk_pos:?} did not reach Full status within 30s");
-        }
+        assert!(
+            handle.poll() == ChunkRequestState::Ready,
+            "chunk {chunk_pos:?} did not reach Full status within 30s"
+        );
 
         while Instant::now() < deadline {
             if chunk_map.is_block_ticking_full_chunk_simulated(chunk_pos) {
@@ -237,7 +241,7 @@ impl Drop for SteelTestWorld {
         // Worldgen tasks for outer-ring chunks outlive the test and panic with
         // "World has been dropped", aborting the whole test process.
         // ponytail: leaks each test world; drain generation on drop if steel exposes an idle check
-        std::mem::forget(Arc::clone(&self.world));
+        mem::forget(Arc::clone(&self.world));
     }
 }
 
