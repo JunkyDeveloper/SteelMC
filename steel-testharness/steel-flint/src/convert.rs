@@ -11,16 +11,9 @@ use steel_utils::{BlockPos as SteelBlockPos, BlockStateId, Identifier};
 ///
 /// Returns `None` if the block ID is unknown or if any property is invalid.
 pub fn flint_block_to_state_id(block: &Block) -> Option<BlockStateId> {
-    // Parse the block ID - may have "minecraft:" prefix
-    let block_id = if block.id.starts_with("minecraft:") {
-        &block.id[10..]
-    } else {
-        &block.id
-    };
-
+    let block_id = block.id.strip_prefix("minecraft:").unwrap_or(&block.id);
     let identifier = Identifier::vanilla(block_id.to_string());
 
-    // Properties are already String values in the new Block type
     let properties: Vec<(&str, &str)> = block
         .properties
         .iter()
@@ -50,11 +43,10 @@ pub fn state_id_to_block(state_id: BlockStateId) -> Block {
         format!("minecraft:{}", block.key.path)
     };
 
-    // Get properties from the registry
-    let props = REGISTRY.blocks.properties(state_id);
     #[allow(clippy::disallowed_types)]
-    let properties: FxHashMap<String, String> = props
-        .into_iter()
+    let properties: FxHashMap<String, String> = REGISTRY
+        .blocks
+        .properties(state_id)
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
 
@@ -84,35 +76,13 @@ pub const fn clip_to_block_hit(clip: ClipHitResult) -> BlockHitResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::init_test_registries;
 
     #[test]
-    fn test_simple_block_conversion() {
-        init_test_registries();
-        let block = Block::new("minecraft:stone");
-
-        let state_id = flint_block_to_state_id(&block);
-        assert!(state_id.is_some(), "Stone should convert to valid state ID");
-
-        let retrieved = state_id_to_block(state_id.expect("Valid state ID"));
-        assert_eq!(retrieved.id, "minecraft:stone");
-    }
-
-    #[test]
-    fn test_air_block() {
-        init_test_registries();
-        let block = Block::new("minecraft:air");
-
-        let state_id = flint_block_to_state_id(&block);
-        assert!(state_id.is_some(), "Air should convert to valid state ID");
-    }
-
-    #[test]
-    fn test_block_without_prefix() {
-        init_test_registries();
-        let block = Block::new("stone");
-
-        let state_id = flint_block_to_state_id(&block);
-        assert!(state_id.is_some(), "Block without prefix should still work");
+    fn block_round_trip_with_and_without_prefix() {
+        crate::init();
+        for id in ["minecraft:stone", "stone"] {
+            let state_id = flint_block_to_state_id(&Block::new(id)).expect("known block");
+            assert_eq!(state_id_to_block(state_id).id, "minecraft:stone");
+        }
     }
 }

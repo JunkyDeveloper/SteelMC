@@ -20,33 +20,9 @@ use toml::from_str;
 
 /// Adapter for running Flint tests against `SteelMC`.
 ///
-/// This adapter creates test worlds that use the real steel-core World
-/// with RAM-only storage for instant chunk creation.
-#[derive(Clone)]
-pub struct SteelAdapter {
-    /// Server info for identification
-    info: ServerInfo,
-}
-
-impl SteelAdapter {
-    /// Creates a new Steel adapter.
-    ///
-    /// Note: You must call `steel_flint::init()` before creating an adapter.
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            info: ServerInfo {
-                minecraft_version: steel_utils::MC_VERSION.to_string(),
-            },
-        }
-    }
-}
-
-impl Default for SteelAdapter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+/// Call `steel_flint::init()` before creating test worlds.
+#[derive(Clone, Default)]
+pub struct SteelAdapter;
 
 impl FlintAdapter for SteelAdapter {
     fn create_test_world(&self) -> Result<Box<dyn FlintWorld + 'static>, anyhow::Error> {
@@ -54,7 +30,9 @@ impl FlintAdapter for SteelAdapter {
     }
 
     fn server_info(&self) -> ServerInfo {
-        self.info.clone()
+        ServerInfo {
+            minecraft_version: steel_utils::MC_VERSION.to_string(),
+        }
     }
 }
 
@@ -85,13 +63,12 @@ pub fn get_implemented_items() -> Vec<String> {
         .collect()
 }
 
-/// Returns IDs of items with a non-default, non-block-item behavior.
+/// Returns IDs of entities with an implementation.
 pub fn get_implemented_entities() -> Vec<String> {
-    let mut registered_entity_ids: Vec<String> = Vec::new();
-    for id in ENTITIES.get_implemented().enumerate() {
-        registered_entity_ids.push(id.1.key.to_string());
-    }
-    registered_entity_ids
+    ENTITIES
+        .get_implemented()
+        .map(|entity| entity.key.to_string())
+        .collect()
 }
 
 /// Flint run settings loaded from `flint.toml`.
@@ -219,12 +196,9 @@ fn matches_pattern(name: &str, pattern: &str) -> bool {
 
 /// Writes the CI summary to `log/flint_summary.json`.
 pub fn save_summary(summary: &TestSummary) -> io::Result<()> {
-    let path = PathBuf::from("log/flint_summary.json");
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(&path, summary.create_ci_output(true))?;
-    println!("Summary saved to {}", path.display());
+    fs::create_dir_all("log")?;
+    fs::write("log/flint_summary.json", summary.create_ci_output(true))?;
+    println!("Summary saved to log/flint_summary.json");
     Ok(())
 }
 
@@ -298,17 +272,15 @@ pub fn print_failure_urls(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::init_test_registries;
     use crate::{TestLoader, TestRunner};
     use flint_core::utils::get_test_path;
     use std::sync::Arc;
 
     #[test]
     fn test_run_flint_selected() {
-        init_test_registries();
+        crate::init();
         init_env();
 
-        // Load the fence test
         let cfg = load_config();
         let test_path = PathBuf::from(get_test_path());
         let loader = TestLoader::new(&test_path, true)
@@ -318,11 +290,7 @@ mod tests {
             .load_specs(&paths, false)
             .unwrap_or_else(|e| panic!("error while loading test specs: {e}"));
 
-        // Create adapter and runner
-        let adapter = SteelAdapter::new();
-        let runner = TestRunner::new(Arc::new(adapter));
-
-        // Run the test
+        let runner = TestRunner::new(Arc::new(SteelAdapter));
         let summary = runner.run_tests(&specs);
         summary.print_concise_summary();
         save_summary(&summary).unwrap_or_else(|e| panic!("failed to save flint summary: {e}"));
