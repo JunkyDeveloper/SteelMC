@@ -1,4 +1,4 @@
-//! Prints all blocks or items with a non-default behavior implemented in `SteelMC`.
+//! Prints all blocks, items or entities with a non-default behavior implemented in `SteelMC`.
 use std::env;
 use std::process::ExitCode;
 
@@ -7,25 +7,18 @@ use steel_flint::adapter::{
 };
 
 fn main() -> ExitCode {
-    let ids = match env::args().nth(1).as_deref() {
-        Some("blocks") => {
-            steel_flint::init();
-            get_implemented_blocks()
-        }
-        Some("items") => {
-            steel_flint::init();
-            get_implemented_items()
-        }
-        Some("entities") => {
-            steel_flint::init();
-            get_implemented_entities()
-        }
+    let kind = env::args().nth(1);
+    let get = match kind.as_deref() {
+        Some("blocks") => get_implemented_blocks,
+        Some("items") => get_implemented_items,
+        Some("entities") => get_implemented_entities,
         _ => {
-            eprintln!("usage: steel-implemented <blocks|items>");
+            eprintln!("usage: steel-implemented <blocks|items|entities>");
             return ExitCode::FAILURE;
         }
     };
-    for id in ids {
+    steel_flint::init();
+    for id in get() {
         println!("{id}");
     }
     ExitCode::SUCCESS

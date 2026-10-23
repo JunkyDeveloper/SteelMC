@@ -63,7 +63,7 @@ jobs:
         env:
           TEST_PATH: ${{ github.workspace }}/FlintBenchmark/tests
           FLINT_VIZ_URL: "https://flinttestmc.github.io/FlintViz"
-        run: cargo test -p steel-flint --profile cicd --lib test_run_flint_selected -- --nocapture
+        run: cargo test -p steel-flint --profile cicd --lib test_run_flint_selected -- --ignored --nocapture
 
       - name: Dump implemented blocks and items
         id: implemented

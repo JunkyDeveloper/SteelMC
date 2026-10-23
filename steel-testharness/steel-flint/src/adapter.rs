@@ -277,6 +277,7 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
+    #[ignore = "needs FlintBenchmark tests (TEST_PATH); run with --ignored"]
     fn test_run_flint_selected() {
         crate::init();
         init_env();
@@ -299,8 +300,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs FlintBenchmark tests (TEST_PATH); run with --ignored"]
     fn test_run_all_flint_benchmarks() {
-        init_test_registries();
+        crate::init();
         init_env();
 
         let test_dir = PathBuf::from(get_test_path());
@@ -326,8 +328,7 @@ mod tests {
             .load_specs(&paths, false)
             .unwrap_or_else(|e| panic!("error while loading test specs: {e}"));
 
-        let adapter = SteelAdapter::new();
-        let runner = TestRunner::new(Arc::new(adapter));
+        let runner = TestRunner::new(Arc::new(SteelAdapter));
         let summary = runner.run_tests(&specs);
         summary.print_concise_summary();
         save_summary(&summary).unwrap_or_else(|e| panic!("failed to save flint summary: {e}"));

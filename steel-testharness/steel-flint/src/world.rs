@@ -78,12 +78,8 @@ impl SteelTestWorld {
 
         let dim_id = Identifier::vanilla_static("overworld");
 
-        // Server takes ownership; world only holds a Weak ref.
-        let damage_history = Arc::new(DamageHistory::default());
-
-        // Create world with RAM-only storage
         let config = WorldConfig {
-            damage_history: Arc::clone(&damage_history),
+            damage_history: Arc::new(DamageHistory::default()),
             storage: WorldStorageConfig::RamOnly,
             level_data_path: None,
             generator: Arc::new(ChunkGeneratorType::Empty(EmptyChunkGenerator::new())),
@@ -152,7 +148,6 @@ impl SteelTestWorld {
             )
             .await
             .expect("Failed to create test server");
-            drop(damage_history);
             (world, server)
         });
 
@@ -164,22 +159,9 @@ impl SteelTestWorld {
         }
     }
 
-    /// Gets a reference to the underlying steel-core world.
-    #[must_use]
-    pub const fn inner(&self) -> &Arc<World> {
-        &self.world
-    }
-
-    /// Ensures the chunk containing the given block position is loaded.
-    ///
-    /// This is intended for testing only. It blocks until the chunk is loaded
-    /// from storage. For RAM-only storage, this creates empty chunks on-demand.
+    /// Ensures the chunk containing `pos` is loaded, retaining its ticket handle.
     fn ensure_chunk_at(&self, pos: &BlockPos) {
-        self.ensure_chunk(ChunkPos::new(pos.x() >> 4, pos.z() >> 4));
-    }
-
-    /// Ensures the chunk at `chunk_pos` is loaded, retaining its ticket handle.
-    fn ensure_chunk(&self, chunk_pos: ChunkPos) {
+        let chunk_pos = ChunkPos::new(pos.x() >> 4, pos.z() >> 4);
         // Fast path: a retained handle that is already Ready means the chunk
         // is loaded at Full and its ticket is held — nothing to do.
         if let Some(handle) = self.chunk_requests.lock().get(&chunk_pos)

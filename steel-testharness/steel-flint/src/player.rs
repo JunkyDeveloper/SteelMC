@@ -1,8 +1,7 @@
 //! Test player implementation for `SteelMC`.
 //!
-//! This implementation wraps a real `steel_core::player::Player` with a
-//! `FlintConnection` to enable testing of player interactions (like `use_item_on`)
-//! without real network connections.
+//! Wraps a real `steel_core::player::Player` with a `FlintConnection` so player
+//! interactions (like `use_item_on`) run without a network.
 
 use std::any::Any;
 use std::sync::Arc;
@@ -25,19 +24,11 @@ use steel_utils::types::{GameType, InteractionHand};
 use uuid::Uuid;
 
 use crate::convert::clip_to_block_hit;
-use crate::test_connection;
 use crate::test_connection::FlintConnection;
 
 /// Test player implementation that wraps a real `Player`.
-///
-/// This provides inventory management and enables calling real game logic
-/// like `use_item_on` through the underlying player.
 pub struct SteelTestPlayer {
-    /// The real player instance.
     player: Arc<Player>,
-    /// The test connection (kept for event inspection).
-    #[allow(dead_code)]
-    connection: FlintConnection,
 }
 
 impl SteelTestPlayer {
@@ -46,56 +37,26 @@ impl SteelTestPlayer {
     /// # Panics
     /// Never in practice: the fixed test player name always passes validation.
     pub fn new(world: Arc<World>, server: &Arc<Server>) -> Self {
-        // Create a test connection
-        let connection = FlintConnection::new();
-        let test_conn = connection.clone(); // shares inner state via Arc
-
-        // Create a dummy game profile
         let game_profile = GameProfile::new(Uuid::new_v4(), "TestPlayer".to_owned(), vec![])
             .expect("\"TestPlayer\" is a valid player name");
-
-        // Create the player with our test connection
-        let player_connection = Arc::new(PlayerConnection::Other(Box::new(connection)));
-        let player = Arc::new({
-            let p = Player::new(
-                game_profile,
-                player_connection,
-                Arc::new(PlayerSession::new(10, 10)),
-                world,
-                Arc::downgrade(server),
-                server.config.clone(),
-                -1, // Negative entity ID for test players
-                ClientInformation::default(),
-            );
-            // Mark as loaded so interactions work
-            p.set_client_loaded(true);
-            p
-        });
-
+        let player_connection = Arc::new(PlayerConnection::Other(Box::new(
+            FlintConnection::default(),
+        )));
+        let player = Player::new(
+            game_profile,
+            player_connection,
+            Arc::new(PlayerSession::new(10, 10)),
+            world,
+            Arc::downgrade(server),
+            server.config.clone(),
+            -1, // Negative entity ID for test players
+            ClientInformation::default(),
+        );
+        // Mark as loaded so interactions work
+        player.set_client_loaded(true);
         Self {
-            player,
-            connection: test_conn,
+            player: Arc::new(player),
         }
-    }
-
-    /// Gets the connection's recorded events (for test assertions).
-    #[allow(dead_code)]
-    #[must_use]
-    pub fn get_events(&self) -> Vec<test_connection::PlayerEvent> {
-        self.connection.get_events()
-    }
-
-    /// Clears the connection's recorded events.
-    #[allow(dead_code)]
-    pub fn clear_events(&self) {
-        self.connection.clear_events();
-    }
-
-    /// Returns a reference to the underlying player.
-    #[allow(dead_code)]
-    #[must_use]
-    pub const fn player(&self) -> &Arc<Player> {
-        &self.player
     }
 }
 
@@ -131,22 +92,15 @@ const fn player_slot_to_index(slot: PlayerSlot) -> usize {
 /// looks up the item in the registry. Returns an empty stack if the item
 /// is not found.
 fn flint_item_to_stack(item: &Item) -> ItemStack {
-    // Parse the item ID - may have "minecraft:" prefix
-    let item_id = if item.id.starts_with("minecraft:") {
-        &item.id[10..]
-    } else {
-        &item.id
-    };
-
-    let identifier = Identifier::vanilla(item_id.to_string());
-
-    // Look up the item in the registry
-    if let Some(item_ref) = REGISTRY.items.by_key(&identifier) {
-        ItemStack::with_count(item_ref, i32::from(item.count))
-    } else {
+    let item_id = item.id.strip_prefix("minecraft:").unwrap_or(&item.id);
+    let Some(item_ref) = REGISTRY
+        .items
+        .by_key(&Identifier::vanilla(item_id.to_string()))
+    else {
         tracing::warn!("Unknown item: {} - returning empty stack", item.id);
-        ItemStack::empty()
-    }
+        return ItemStack::empty();
+    };
+    ItemStack::with_count(item_ref, i32::from(item.count))
 }
 
 /// Converts a Steel [`ItemStack`] to a Flint [`Item`].
