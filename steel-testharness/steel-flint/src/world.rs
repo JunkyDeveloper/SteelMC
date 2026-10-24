@@ -54,6 +54,8 @@ pub struct SteelTestWorld {
     world: Arc<World>,
     /// Server owning the world; players hold a weak reference to it.
     server: Arc<Server>,
+    /// Owner of the damage history; the world only holds a weak reference.
+    _damage_history: Arc<DamageHistory>,
     /// Current tick count (for `FlintWorld` trait).
     tick: AtomicU64,
     /// Active chunk requests, keyed by chunk position.
@@ -78,8 +80,9 @@ impl SteelTestWorld {
 
         let dim_id = Identifier::vanilla_static("overworld");
 
+        let damage_history = Arc::new(DamageHistory::default());
         let config = WorldConfig {
-            damage_history: Arc::new(DamageHistory::default()),
+            damage_history: Arc::clone(&damage_history),
             storage: WorldStorageConfig::RamOnly,
             level_data_path: None,
             generator: Arc::new(ChunkGeneratorType::Empty(EmptyChunkGenerator::new())),
@@ -154,6 +157,7 @@ impl SteelTestWorld {
         Self {
             world,
             server,
+            _damage_history: damage_history,
             tick: AtomicU64::new(0),
             chunk_requests: SyncMutex::new(FxHashMap::default()),
         }

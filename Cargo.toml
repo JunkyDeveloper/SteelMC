@@ -33,7 +33,7 @@ steel-worldgen = { path = "steel-worldgen" }
 steel-math = { path = "steel-math" }
 
 # Async runtime
-tokio = { version = "1.53.3", features = [
+tokio = { version = "1.54.1", features = [
     "macros",
     "net",
     "rt-multi-thread",
@@ -69,7 +69,7 @@ crossbeam = "0.8.5"
 parking_lot = { version = "0.13.0", features = ["nightly", "arc_lock"] }
 rayon = "1.12.0"
 scc = "3.8.8"
-arc-swap = "1.9.2"
+arc-swap = "1.9.3"
 
 # Data structures
 glam = { version = "0.34.1", features = ["serde"] }
@@ -81,7 +81,7 @@ phf = { version = "0.14.0", features = ["macros"] }
 chrono = "0.4.45"
 
 # UUID
-uuid = { version = "1.28.0", features = ["serde", "v4"] }
+uuid = { version = "1.29.0", features = ["serde", "v4"] }
 
 # Logging
 log = "0.4.34"
